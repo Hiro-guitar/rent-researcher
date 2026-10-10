@@ -106,6 +106,22 @@ function _newFriendSheet_() {
  *   ここを上書きすると「ひと押しの何日後に動いたか」が測れなくなる。
  * @param {string} kind '登録だけ' | '途中でやめた' | '空室確認だけ'
  */
+/**
+ * 営業時間の始め（10時）に全員へ一斉に届くと bot っぽいので、夜のあいだに送る時刻が来た人は
+ * 10:00〜12:29 の中で人ごとにずらす（userId から決まる。毎回同じ時刻）。2026-10-10 ユーザー指摘。
+ * @param {number=} dueMs 送ってよくなった時刻。今日の10時より後なら、そのまま送る。省けば朝の人として扱う
+ * @return {boolean} 今送ってよいか
+ */
+function _nfSpreadOk_(userId, dueMs) {
+  var now = Date.now();
+  var jst = new Date(now + 9 * 3600000);
+  var open = Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate(), 10, 0) - 9 * 3600000;   // 今日の10時（JST）
+  if (dueMs && dueMs > open) return true;   // 営業時間中に時刻が来た人は、ずらさない
+  var h = 0, s = String(userId || '');
+  for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return now >= open + (h % 150) * 60000;
+}
+
 function _recordNudgedAt_(sh, rowIndex, kind, when) {
   try {
     if (String(sh.getRange(rowIndex, NEW_FRIEND_NUDGED_AT_COL).getValue() || '').trim() !== '') return;
@@ -228,7 +244,8 @@ function processNewFriendReminders() {
     if (String(data[i][3] || '').trim() !== '') continue;
     var addedAt = data[i][1];
     if (!(addedAt instanceof Date) || addedAt.getTime() > cutoff) continue;
-    candidates.push({ rowIndex: i + 2, userId: String(data[i][0] || '').trim(), name: String(data[i][2] || '') });
+    candidates.push({ rowIndex: i + 2, userId: String(data[i][0] || '').trim(), name: String(data[i][2] || ''),
+      dueMs: addedAt.getTime() + NEW_FRIEND_REMIND_AFTER_HOURS * 3600000 });
   }
   if (candidates.length === 0) return;
 
@@ -289,6 +306,7 @@ function processNewFriendReminders() {
     // 両方が同じ回に動くと2通届いてしまう。役割をはっきり分ける。
     if (_hasLiveFlowState_(t.userId)) { skipped++; continue; }
     if (!NEW_FRIEND_REMIND_ENABLED) continue;         // 文面が決まるまでは送らない
+    if (!_nfSpreadOk_(t.userId, t.dueMs)) continue;    // 朝いちばんに一斉に送らない（次の回に持ち越す）
     try {
       pushMessage(t.userId, buildNewFriendRemindMessages());
       sh.getRange(t.rowIndex, 4, 1, 2).setValues([['ひと押し送信', now]]);
@@ -767,6 +785,7 @@ function processAbandonedFlowReminders() {
     // 条件登録の途中でも、すでに条件を持っている人には送らない（条件変更の中断など）
     if (done[t.userId] && t.kind !== 'vacancy') { skipped++; _markNudged_(props, t); continue; }
     if (!ABANDONED_REMIND_ENABLED) continue;
+    if (!_nfSpreadOk_(t.userId)) continue;   // 朝いちばんに一斉に送らない（次の回に持ち越す）
     try {
       pushMessage(t.userId, _abandonedRemindMessages_(t.kind, t.userId, t.state));
       // 送ったからには続きができるよう、受付の期限も延ばす（24時間で切れるため）
@@ -1011,7 +1030,8 @@ function processVacancyFollowups() {
     if (String(data[i][VACANCY_FOLLOWUP_COL - 1] || '').trim() !== '') continue;  // 送信済み
     var at = data[i][4];   // 状態になった日時＝空室確認をやり切った時刻
     if (!(at instanceof Date) || at.getTime() > cutoff) continue;
-    candidates.push({ rowIndex: i + 2, userId: String(data[i][0] || '').trim(), name: String(data[i][2] || '') });
+    candidates.push({ rowIndex: i + 2, userId: String(data[i][0] || '').trim(), name: String(data[i][2] || ''),
+      dueMs: at.getTime() + VACANCY_FOLLOWUP_AFTER_HOURS * 3600000 });
   }
   if (candidates.length === 0) return;
 
@@ -1063,6 +1083,7 @@ function processVacancyFollowups() {
     if (la && la > cutoff) { skipped++; continue; }
     if (_hasLiveFlowState_(t.userId)) { skipped++; continue; }
     if (!VACANCY_FOLLOWUP_ENABLED) continue;
+    if (!_nfSpreadOk_(t.userId, t.dueMs)) continue;   // 朝いちばんに一斉に送らない（次の回に持ち越す）
     try {
       pushMessage(t.userId, buildVacancyFollowupMessages());
       sh.getRange(t.rowIndex, VACANCY_FOLLOWUP_COL).setValue(now);

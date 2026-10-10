@@ -526,6 +526,9 @@ function getCrmTree(opts) {
     c.mailStopped = !!(c.email && unsubSet[String(c.email).trim().toLowerCase()]);
     c.lineChatUrl = chatUrls[c.name] || '';
     c.sig = _crmTreeSignals_(acts[c.name], cl.lastMs, c.replyMs, cl.inquiryMs);
+    // 催促（ひと押し）より前の再問い合わせは、もう催促で拾ったものとみなす。
+    //   ⚠️ そうしないと「催促のあと24時間反応なし」で終わるはずの人が、⚡再問い合わせのまま残り続けた（2026-10-10 伊東さん）
+    if (c.sig.reInquiry && c.nudgedMs && c.sig.reInquiry < c.nudgedMs) { c.sig.reInquiry = 0; if (c.sig.note === '再問い合わせ') c.sig.note = ''; }
     var tsAll = tasks[c.name] || [];
     // 昔の「次の連絡」タスクは、やることには出さず、次に赤くする日として使う（CRMグループ D列が無いとき）
     var legacyNext = tsAll.filter(function (t) { return t.content === CRM_NEXT_TASK && t.due; }).map(function (t) { return t.due; }).sort()[0] || '';
