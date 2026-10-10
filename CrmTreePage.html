@@ -329,12 +329,20 @@
       : '<a target="_blank" href="' + esc(customerPageUrl + '&customer=' + encodeURIComponent(c.name)) + '">' + esc(c.name) + '</a>';
     var tel = c.phone ? ' <a class="meta" href="tel:' + esc(c.phone) + '">📞 ' + esc(c.phone) + '</a>' : '';
     var pen = c.lineOnly ? '' : ' <button class="pen" title="名前を変える" onclick="renameAsk(' + esc(JSON.stringify(c.name)) + ')">✏️</button>';
-    var h = '<div class="cust"><div class="name">' + name + pen + tel + '</div>';
+    var chat = c.lineChatUrl ? ' <a class="meta" target="_blank" href="' + esc(c.lineChatUrl) + '">💬 LINEのトーク</a>' : '';
+    var h = '<div class="cust"><div class="name">' + name + pen + tel + chat + '</div>';
     if (c.note) h += '<div class="note">' + esc(c.note) + '</div>';
     if (c.viewNote) h += '<div class="meta">👀 ' + esc(c.viewNote) + '</div>';
     var meta = metaOf(c);
     if (meta) h += '<div class="meta">' + esc(meta) + '</div>';
     if (c.nextAuto) h += '<div class="auto">🤖 次の自動: ' + esc(c.nextAuto) + '</div>';
+    if (c.email && !c.lineOnly) {
+      // 自動フォローアップメール（毎日のメール）。LINEにつながった人には、もともと送っていない
+      var mn = esc(JSON.stringify(c.name));
+      h += '<div class="meta">✉️ 自動メール: ' + (c.hasLine ? 'LINEにつながっているので送っていません'
+        : c.mailStopped ? '止めています <button class="opt" onclick="mailStop(' + mn + ',false)">再開する</button>'
+        : '送っています <button class="opt" onclick="mailStop(' + mn + ',true)">止める</button>') + '</div>';
+    }
     if (c.lineOnly) {
       // 名前の無いLINEの友だち。記録はLINEだけ（返信したら押す）
       h += '<div class="acts"><button class="btn" onclick="rec(' + esc(JSON.stringify(c.name)) + ',\'LINE\')">📨 LINEした</button></div>';
@@ -733,7 +741,7 @@
     rows.push([f.areaMethod === 'city' ? '市区町村' : '路線・駅', area]);
     rows.push(['賃料の上限', f.rentMax ? esc(f.rentMax) + '万円' : '']);
     rows.push(['間取り', (f.layouts || []).map(esc).join('・')]);
-    rows.push(['駅徒歩', esc(f.walk || '')]);
+    rows.push(['駅徒歩', f.walk ? esc(f.walk) + (/^\d+$/.test(String(f.walk)) ? '分以内' : '') : '']);
     rows.push(['広さ', f.areaMin ? esc(f.areaMin) + (/m/.test(f.areaMin) ? '' : 'm²') + '以上' : '']);
     rows.push(['築年数', esc(f.age || '')]);
     rows.push(['構造', (f.structures || []).map(esc).join('・')]);
@@ -1419,6 +1427,9 @@
     var v = (document.getElementById('newNm') || {}).value || '';
     if (!v.trim()) { toast('名前を入れてください'); return; }
     call('nameCrmLineOnly', [pseudo, uid, v.trim()], '登録しました');
+  }
+  function mailStop(name, stop) {
+    call('setCrmMailStop', [name, stop], stop ? 'メールを止めました' : 'メールを再開しました', function (c) { c.mailStopped = !!stop; });
   }
   function renameAsk(name) {
     var v = prompt('新しい名前（関係するシートの名前もまとめて変わります）', name);

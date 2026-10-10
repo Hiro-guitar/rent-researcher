@@ -47,6 +47,7 @@
   var sweeping = false;
   var done = {};                // 同じトークを何度も叩かない
   var checkedSig = {};          // 対応表と照らし合わせたときのトークの指紋（変わったら取り直す）
+  var reported = {};            // CRMに知らせた「顧客名 → トークのID」（変わったものだけ送る）
 
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -274,6 +275,27 @@
         shownCount[chats[s0].shown] = (shownCount[chats[s0].shown] || 0) + 1;
       }
       var warned = {};
+
+      // CRMの「💬 LINEのトーク」用: どのトークがどの顧客か、GASに知らせる（変わった分だけ）
+      // 表示名が対応表にある人（まだ改名していない）か、表示名がもう顧客名になっている人（改名済み）。重複は見送る
+      try {
+        var custNames = {};
+        Object.keys(map).forEach(function (k) { custNames[normName(map[k])] = String(map[k]).trim(); });
+        var pairs = [];
+        chats.forEach(function (c) {
+          if (shownCount[c.shown] > 1) return;
+          var nm = map[c.shown] ? String(map[c.shown]).trim() : (custNames[normName(c.shown)] || '');
+          if (!nm || reported[nm] === c.chatId) return;
+          pairs.push({ name: nm, chatId: c.chatId });
+        });
+        if (pairs.length && botId()) {
+          chrome.runtime.sendMessage({ type: 'LINE_CHAT_IDS', bot: botId(), pairs: pairs }, function (res) {
+            if (chrome.runtime.lastError || !res || !res.ok) return;   // 失敗したら次の巡回でもう一度
+            pairs.forEach(function (p) { reported[p.name] = p.chatId; });
+            if (res.written) console.log('[LINE表示名] CRMにトークを知らせました: ' + res.written + '人');
+          });
+        }
+      } catch (eR) { console.warn('[LINE表示名] トークの知らせに失敗: ' + eR.message); }
 
       var todo = [];
       for (var i = 0; i < chats.length; i++) {

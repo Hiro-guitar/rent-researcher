@@ -3043,6 +3043,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   //   待っているので、その1分が体感でかなり長い（2026-09-20）。
   // chat.line.biz の content script が、userId から顧客名を引くために呼ぶ。
   // ⚠️ content script から直接GASを叩くとCORSで止まるので、ここで代わりに取りに行く。
+  // chat.line.biz の content script から: 顧客名 → トークのID（CRMからトーク画面を開くため）
+  if (msg.type === 'LINE_CHAT_IDS') {
+    gasPost({ action: 'line_chat_ids', bot: msg.bot, pairs: msg.pairs || [] })
+      .then(r => sendResponse({ ok: !!(r && r.ok), written: (r && r.written) || 0 }))
+      .catch(err => { console.warn('[LINE表示名] トークを知らせられません: ' + err.message); sendResponse({ ok: false }); });
+    return true;
+  }
   if (msg.type === 'LINE_NAME_MAP') {
     const now = Date.now();
     // fresh: まだ名前の付いていない人がいるときは、10秒より古ければ取り直す（メールを送った人をすぐ付け替えるため）

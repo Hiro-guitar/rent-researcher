@@ -106,6 +106,13 @@ function doPost(e) {
     // ⚠️ update_availability は使わないこと。あちらは空いたらキャンセル待ちの印を消し、
     //   Discord にも送る（拡張も送るので二重になる）。ここは F列(状態)・G列(確認日時)を書くだけ。
     //   CRMの「キャンセル待ち」欄が、この記録を見て空き状況を出す。
+    // 拡張（chat.line.biz）から: 顧客名 → LINEのトークのID（CRMからトーク画面を開くため）
+    if (json.action === 'line_chat_ids') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify(recordCrmLineChats_(json.bot, json.pairs))).setMimeType(ContentService.MimeType.JSON);
+    }
     if (json.action === 'record_watch_status') {
       if (!_validateReinsApiKey(json.api_key)) {
         return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);

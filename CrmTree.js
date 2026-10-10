@@ -205,10 +205,12 @@ function _crmTreeContactLog_(ss) {
       if (outcome === 'failed') { r.failed++; if (ms) r.failedMs.push(ms); }
       // 電話で話せた＝お客様が応じた（無視の数え直し）。LINE の記録は「こちらが送った」なので含めない
       if (outcome === 'talked' && type.indexOf('電話') >= 0 && ms > r.talkMs) r.talkMs = ms;
-      if (ms) r.contactMs.push(ms);
       if (ms > r.lastMs) r.lastMs = ms;
       // こちらから連絡した時刻（電話・LINE・手で送ったメール）。自動返信メール・条件変更などの「その他」は数えない
-      if (ms > (r.outMs || 0) && (/^(電話|LINE)/.test(type) || (type === 'メール' && String(rows[i][3] || '').indexOf('自動返信') !== 0))) r.outMs = ms;
+      // ⚠️ 無視の日数（contactMs）もこれだけで数える。以前は条件変更・LINEをつないだ・自動返信メールまで「連絡した日」になっていた（2026-10-10）
+      var isOut = /^(電話|LINE)/.test(type) || (type === 'メール' && String(rows[i][3] || '').indexOf('自動返信') !== 0);
+      if (ms && isOut) r.contactMs.push(ms);
+      if (isOut && ms > (r.outMs || 0)) r.outMs = ms;
     }
   } catch (e) { console.warn('[樹形図] 対応ログ: ' + e.message); }
   return out;
@@ -468,6 +470,15 @@ function getCrmTree(opts) {
   var groups = _crmGroups_(ss);
   var nextRedAll = _crmNextRed_(ss);
   var autoCtx = _crmTreeAutoContext_(ss, friends);
+  var chatUrls = _crmLineChatUrls_(ss);
+  // 自動フォローアップメール（reply.py）を止めているアドレス（配信停止シート）
+  var unsubSet = {};
+  try {
+    var _us = ss.getSheetByName(UNSUBSCRIBE_SHEET_NAME);
+    if (_us && _us.getLastRow() > 1) _us.getRange(2, 1, _us.getLastRow() - 1, 1).getValues().forEach(function (r) {
+      var em = String(r[0] || '').trim().toLowerCase(); if (em) unsubSet[em] = true;
+    });
+  } catch (eUs) {}
   var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
   var count = {};
@@ -503,6 +514,8 @@ function getCrmTree(opts) {
     var _outD = cl.outMs ? (todayIdx - _jstDayIndex_(cl.outMs)) : null;
     if (c.daysSinceSent !== null && c.daysSinceSent !== undefined && (_outD === null || c.daysSinceSent < _outD)) _outD = c.daysSinceSent;
     c.daysSinceOut = _outD;
+    c.mailStopped = !!(c.email && unsubSet[String(c.email).trim().toLowerCase()]);
+    c.lineChatUrl = chatUrls[c.name] || '';
     c.sig = _crmTreeSignals_(acts[c.name], cl.lastMs, c.replyMs, cl.inquiryMs);
     var tsAll = tasks[c.name] || [];
     // 昔の「次の連絡」タスクは、やることには出さず、次に赤くする日として使う（CRMグループ D列が無いとき）
@@ -622,7 +635,7 @@ function _crmTreeForPage_(only) {
         phone: c.phone || '', hasLine: !!c.hasLine, hasCriteria: !!c.hasCriteria,
         daysSinceInquiry: c.daysSinceInquiry, failedCalls: c.failedCalls || 0,
         callSlots: (c.callSlots && c.callSlots.first !== undefined) ? c.callSlots.label : '',
-        email: c.email || '',
+        email: c.email || '', mailStopped: !!c.mailStopped, lineChatUrl: c.lineChatUrl || '',
         daysSinceSent: c.daysSinceSent, daysSinceViewed: c.daysSinceViewed, daysSinceOut: c.daysSinceOut,
         lastTalkAt: c.lastTalkAt || '', moveIn: c.moveIn || '',
         note: (c.sig && c.sig.note) || '', viewNote: (c.sig && c.sig.viewNote) || '',
@@ -1061,7 +1074,7 @@ function _crmTreeNextAuto_(c, ctx) {
   if (w && w.ms) items.push({ ms: w.ms, text: w.what + 'に返事がなければ終了（' + _crmFmt_(w.ms, true) + '）' });
 
   // LINEに来ていない人: 毎日のフォローアップメール（reply.py・反響から14日）
-  if (!c.hasLine && c.email && c.daysSinceInquiry !== null && c.daysSinceInquiry < CRM_TREE_MAIL_DAYS) {
+  if (!c.hasLine && c.email && !c.mailStopped && c.daysSinceInquiry !== null && c.daysSinceInquiry < CRM_TREE_MAIL_DAYS) {
     var endMs = now + (CRM_TREE_MAIL_DAYS - c.daysSinceInquiry) * _DAY_MS_;
     items.push({ ms: now, text: '毎日のメール（あと' + (CRM_TREE_MAIL_DAYS - c.daysSinceInquiry) + '日・' + _crmFmt_(endMs) + 'まで）' });
   }
@@ -1279,6 +1292,66 @@ function processCrmIgnoreEnd() {
     try { if (endCustomerAsSilent(c.name, c.uid, c.endWhy)) n++; } catch (e) { console.warn('[無視で終了] ' + c.name + ': ' + e.message); }
   });
   console.log('[無視で終了] ' + n + '人');
+}
+
+// ── LINEのトーク画面（chat.line.biz）へのリンク ──
+// ⚠️ chat.line.biz のトークのIDは、webhook の userId とは別体系（2026-09-21 実測）。こちらからは作れない。
+//   Chrome拡張（line-rename.js）が chat.line.biz を開いている間に「表示名 → 顧客名」で突き合わせて、ここに書いてくる。
+var CRM_LINE_CHAT_SHEET = 'LINEチャット';   // A=顧客名 B=トークのID C=アカウントのID D=更新日時
+
+function _crmLineChatUrls_(ss) {
+  var out = {};
+  try {
+    var sh = ss.getSheetByName(CRM_LINE_CHAT_SHEET);
+    if (sh && sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
+      var n = String(r[0] || '').trim(), chat = String(r[1] || '').trim(), bot = String(r[2] || '').trim();
+      if (n && chat && bot) out[n] = 'https://chat.line.biz/' + bot + '/chat/' + chat;
+    });
+  } catch (e) {}
+  return out;
+}
+
+/** 拡張から: [{ name, chatId }] と bot を受け取り、変わった行だけ書く。 */
+function recordCrmLineChats_(bot, pairs) {
+  var ID_RE = /^U[0-9a-f]{32}$/;
+  bot = String(bot || '').trim();
+  if (!ID_RE.test(bot) || !Array.isArray(pairs)) return { ok: false, written: 0 };
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName(CRM_LINE_CHAT_SHEET);
+  if (!sh) { sh = ss.insertSheet(CRM_LINE_CHAT_SHEET); sh.appendRow(['顧客名', 'トークのID', 'アカウントのID', '更新日時']); }
+  var rowOf = {};
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r, i) {
+    rowOf[String(r[0] || '').trim()] = { row: i + 2, chat: String(r[1] || ''), bot: String(r[2] || '') };
+  });
+  var touched = [], now = new Date();
+  pairs.forEach(function (p) {
+    var n = String(p && p.name || '').trim(), chat = String(p && p.chatId || '').trim();
+    if (!n || !ID_RE.test(chat)) return;
+    var cur = rowOf[n];
+    if (cur && cur.chat === chat && cur.bot === bot) return;
+    if (cur) { sh.getRange(cur.row, 2, 1, 3).setValues([[chat, bot, now]]); touched.push(cur.row); }
+    else { sh.appendRow([n, chat, bot, now]); rowOf[n] = { row: sh.getLastRow(), chat: chat, bot: bot }; touched.push(sh.getLastRow()); }
+  });
+  if (touched.length) { try { cfSyncRows(CRM_LINE_CHAT_SHEET, touched, 'LINEのトーク'); } catch (eCf) {} }
+  return { ok: true, written: touched.length };
+}
+
+/**
+ * 自動フォローアップメール（reply.py が送る毎日のメール）を止める／再開する。
+ * 配信停止シートにアドレスを足す／消す（reply.py は送る前に check_followup_status でここを見る）。
+ */
+function setCrmMailStop(customerName, stop) {
+  var r = setCustomerEmailUnsubscribe(customerName, !!stop);
+  if (!r.success) throw new Error(r.message);
+  try {
+    if (typeof _cfCheckSheet_ === 'function' && PropertiesService.getScriptProperties().getProperty('CF_SYNC_TOKEN')) {
+      var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(UNSUBSCRIBE_SHEET_NAME);
+      if (sh) _cfCheckSheet_(sh, UNSUBSCRIBE_SHEET_NAME, CacheService.getScriptCache());
+    }
+  } catch (eCf) {}
+  var t = _crmTreeForPage_(customerName);
+  t.savedMessage = r.message;
+  return t;
 }
 
 /** 【GASエディタで実行: CrmTree.gs】第2版の段階ごとの人数と、赤い人を出す。何も変えない。 */

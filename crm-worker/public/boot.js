@@ -5,7 +5,7 @@
   var SHEETS = ['検索条件', 'LINE Users', '対応ログ', 'タスク', '問い合わせ', 'CRMグループ', 'CRMメモ', 'LINE家族', 'LINE要返信',
     '樹形図の対象外（旧顧客）', 'LINE友だち追加', 'LINEブロック（名前なし）', '通知済み物件', 'アクションログ', '閲覧ログ', '継続確認',
     '引越し時期の確認', '電話のお願い', '初回配信フォロー', '初回検索の確認', '配信停止', 'LINE登録メール', 'LINE Activity', 'メール送信履歴',
-    'CRM送信候補', '空室確認依頼', '承認待ち物件'];
+    'CRM送信候補', '空室確認依頼', '承認待ち物件', 'LINEチャット'];
   var HOLIDAYS = 'https://holidays-jp.github.io/api/v1/date.json';
   var lastU = 0, lastVer = 0, lastCheckAt = 0, inflightSince = 0;
   // 外で変わったか確かめて、変わっていれば取り込んで組み立て直す（Discordから送った・検索の新着・条件変更・LINEの返信など）
@@ -98,7 +98,7 @@
     recordCrmTalk: 1, setCrmClosed: 1,
     sendCrmProperties: 1, saveCrmCriteria: 1, logCrmManualMessage: 1, copyCrmPropertyTo: 1, resendCrmToFamily: 1,
     addCrmCustomer: 1, renameCrmCustomer: 1, linkCrmLine: 1, linkCrmFamily: 1, unlinkCrmFamily: 1, nameCrmLineOnly: 1,
-    saveCrmPropertyEdit: 1, addCrmTask: 1, doneCrmTask: 1, setCrmTaskDue: 1, deleteCrmTask: 1, setCrmTaskOwner: 1, setCrmViewingWish: 1
+    saveCrmPropertyEdit: 1, addCrmTask: 1, doneCrmTask: 1, setCrmTaskDue: 1, deleteCrmTask: 1, setCrmTaskOwner: 1, setCrmViewingWish: 1, setCrmMailStop: 1
   };
   // 押した瞬間に画面の順番待ちの列から呼ばれる。手元で先に動かした結果を覚えておき、列の番が来たら保存だけする
   var preApplied = [];
