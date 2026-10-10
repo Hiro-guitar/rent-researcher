@@ -1270,7 +1270,7 @@ function _crmChipOf_(c) {
     var _today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
     var _waiting = !!(c.nextTaskDue && c.nextTaskDue > _today);
     parts.push(_waiting ? '次 ' + c.nextTaskDue.substring(5).replace('-', '/') : (c.contactedToday ? '今日 ✓' : '今日 未'));
-    if (c.ignoreDays) parts.push('無視' + c.ignoreDays + '日目');
+    // 無視の日数は出さない（2026-10-10 ユーザー判断）。c.ignoreDays は数えたまま
     todo = !_waiting && !c.contactedToday;
   }
   if (sid === 'viewing' && c.tasks) {

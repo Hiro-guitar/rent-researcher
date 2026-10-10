@@ -100,6 +100,8 @@
   .crit { display: flex; flex-direction: column; gap: 4px; }
   .pen { border: none; background: none; cursor: pointer; font-size: 13px; padding: 0 2px; opacity: .6; }
   .pen:hover { opacity: 1; }
+  .critbox { border: 1.5px solid var(--green); border-radius: 10px; padding: 10px 12px; margin: 16px 0 8px; }
+  .critttl { font-size: 14px; font-weight: 700; color: var(--green); margin-bottom: 4px; }
   .csum { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; margin: 4px 0 6px; }
   .csum .k { color: var(--muted); white-space: nowrap; }
   .csum .v { min-width: 0; overflow-wrap: anywhere; }
@@ -316,7 +318,7 @@
   function metaOf(c) {
     var m = [];
     if (c.callSlots && (c.node === 'callQueue' || c.node === 'callWait')) m.push('架電 ' + c.callSlots);
-    else if (c.failedCalls) m.push('つながらず' + c.failedCalls + '回');
+    else if (c.failedCalls && !c.hasCriteria) m.push('つながらず' + c.failedCalls + '回');   // 条件登録済みの人には要らない
     if (c.daysSinceOut !== null && c.daysSinceOut !== undefined) m.push('最後にこちらから連絡 ' + (c.daysSinceOut ? c.daysSinceOut + '日前' : '今日'));
     if (c.moveIn) m.push('引越し希望日 ' + c.moveIn);
     if (c.endWhy) m.push('終了: ' + c.endWhy);
@@ -388,9 +390,10 @@
           + '<button class="btn" onclick="askViewing=\'\';render()">やめる</button></div>';
       } else {
         h += '<div class="acts">'
-          + '<button class="btn" onclick="askTalk=' + n + ';render()">📞 話せた</button>'
-          + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>'
-          + '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>'
+          // 話せた・つながらずは条件を登録する前（電話で追う人）だけ。LINEしたは架電待ちの人には出さない
+          + (!c.hasCriteria ? '<button class="btn" onclick="askTalk=' + n + ';render()">📞 話せた</button>'
+            + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>' : '')
+          + (c.stageId !== 'call' ? '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>' : '')
           + '<button class="btn" onclick="askNext=' + n + ';render()">🕒 次に赤くする日</button>'
           + '<button class="btn" title="今日だけ黒くする（明日また赤くなる）" onclick="next(' + n + ',1)">⚫ 今日はいい</button>'
           + '</div><div class="acts small">';
@@ -621,7 +624,7 @@
         + (q.content ? '<div class="meta">' + esc(q.content) + '</div>' : '') + '</div>';
     }).join('') : '<div class="meta">問い合わせの記録はありません</div>';
 
-    h += '<div class="sec">条件</div>' + critSummaryHtml(c);
+    h += '<div class="critbox"><div class="critttl">📋 登録中の条件</div>' + critSummaryHtml(c) + '</div>';
 
     h += '<div class="sec">メモ（お客様には見えません）</div>'
       + '<textarea id="memo" class="memo" oninput="memoInput(' + n + ',this.value)" onblur="memoSave(' + n + ')">' + esc(x.memoDraft) + '</textarea>'
