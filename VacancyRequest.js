@@ -320,10 +320,35 @@ function _vacancyEntryContext_(userId) {
  * 同じ建物は1つにまとめる。電話反響はメールが無いので自然に外れる。
  * @return {Array<{renban,building,url,name,at}>}
  */
+/**
+ * メールを照らし合わせるための形。小文字にして、Gmail は「.」と「+以降」を無視する（Gmail では同じ受信箱に届く）。
+ * ⚠️ 2026-10-10: SUUMOでは chipi.chipi0902@gmail.com、LINEでは chipichipi0902@gmail.com と送ってきた人が結びつかなかった。
+ */
+function _emailKey_(e) {
+  e = String(e || '').trim().toLowerCase();
+  var at = e.lastIndexOf('@');
+  if (at < 0) return e;
+  var local = e.substring(0, at), dom = e.substring(at + 1);
+  if (dom === 'gmail.com' || dom === 'googlemail.com') { local = local.split('+')[0].replace(/\./g, ''); dom = 'gmail.com'; }
+  return local + '@' + dom;
+}
+
+/**
+ * 【GASエディタで実行: VacancyRequest.gs】LINEで送ってきたメールで、顧客と結び直す（Gmailの「.」違いで結びつかなかった人用）。
+ * 結びたい人の userId とメールを LINKS に入れて実行する。
+ */
+function relinkLineByEmailNow() {
+  var LINKS = [
+    ['Ua3146126c0201650fa3365bdb6305673', 'chipichipi0902@gmail.com']   // ちひろ → 野崎（SUUMOは chipi.chipi0902@gmail.com）
+  ];
+  LINKS.forEach(function (l) { console.log(l[1] + ': ' + JSON.stringify(_vacancyLinkByEmail_(l[0], l[1]))); });
+  try { cfSyncAfterCrmWrite_(); } catch (eCf) {}
+}
+
 function _vacancyFindInquiriesByEmails_(emails) {
   var set = {};
   for (var i = 0; i < (emails || []).length; i++) {
-    var e = String(emails[i] || '').trim().toLowerCase();
+    var e = _emailKey_(emails[i]);
     if (e) set[e] = true;
   }
   if (!Object.keys(set).length) return [];
@@ -334,7 +359,7 @@ function _vacancyFindInquiriesByEmails_(emails) {
     if (!sh || sh.getLastRow() < 2) return [];
     var data = sh.getRange(2, 1, sh.getLastRow() - 1, INQUIRY_HEADERS.length).getValues();
     for (var r = 0; r < data.length; r++) {
-      var em = String(data[r][4] || '').trim().toLowerCase();
+      var em = _emailKey_(data[r][4]);
       if (!em || !set[em]) continue;
       var building = String(data[r][8] || '').trim();
       if (!building) continue;
@@ -414,7 +439,7 @@ function _vacancyLinkByEmail_(userId, email) {
       var nm = String(rows[r][1] || '').trim();
       if (!nm) continue;
       if (lineName && nm === lineName) lineHasRow = true;
-      if (!leadName && String(rows[r][31] || '').trim().toLowerCase() === email) leadName = nm;
+      if (!leadName && _emailKey_(rows[r][31]) === _emailKey_(email)) leadName = nm;
     }
   }
 

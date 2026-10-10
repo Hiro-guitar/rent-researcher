@@ -428,13 +428,21 @@ function getCrmTree(opts) {
   var blockedOnly = (typeof _lineBlockedOnlyIds_ === 'function') ? _lineBlockedOnlyIds_() : {};
   var family = _crmFamily_(ss);   // 家族のLINE（親の顧客にぶら下がる）
 
+  // 友だち追加のときに表示名を取れなかった人（「（名前なし）」になる）は、LINE Activity の表示名で補う
+  var actName = {};
+  try {
+    var _la = ss.getSheetByName('LINE Activity');
+    if (_la && _la.getLastRow() > 1) _la.getRange(2, 1, _la.getLastRow() - 1, 3).getValues().forEach(function (r) {
+      var u = String(r[0] || '').trim(), dn = String(r[2] || '').trim(); if (u && dn) actName[u] = dn;
+    });
+  } catch (eLa) {}
   // LINEに来たが、名前がまだ無い人（条件登録も空室確認もしていない）。
   // 検索条件シートに行が無いので、友だち追加の記録から足す。控えた時刻より後に来た人だけ。
   Object.keys(friends).forEach(function (uid) {
     var f = friends[uid];
     if (knownUid[uid] || family.byUid[uid] || !f.addedMs || f.addedMs < old.frozenMs) return;   // 家族としてつないだ人は出さない
     customers.push({
-      name: (f.displayName || '（名前なし）') + '〔LINEのみ〕', lineOnly: true, uid: uid,
+      name: (f.displayName || actName[uid] || '（名前なし）') + '〔LINEのみ〕', lineOnly: true, uid: uid,
       status: blockedOnly[uid] ? 'blocked' : '', stage: '', hasLine: true, hasPhone: false, hasCriteria: false,
       daysSinceTalk: null, daysSinceSent: null, daysSinceViewed: null,
       registeredAt: Utilities.formatDate(new Date(f.addedMs), 'Asia/Tokyo', 'yyyy/MM/dd')

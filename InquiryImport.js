@@ -108,6 +108,30 @@ function addManualInquiry(propertyName, callerName, phone, memo) {
   }
 }
 
+/**
+ * 【GASエディタで実行: InquiryImport.gs】取り込み済みの問い合わせに「お問合せ内容コメント」を足す（直近60日）。
+ * GmailID（T列）のメールを読み直す。もう足してある行は飛ばす。
+ */
+function backfillInquiryComments() {
+  var sh = _getInquirySheet_();
+  if (sh.getLastRow() < 2) return;
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, INQUIRY_HEADERS.length).getValues();
+  var since = Date.now() - 60 * 86400000, n = 0, rows = [];
+  for (var i = 0; i < data.length; i++) {
+    var at = (data[i][0] instanceof Date) ? data[i][0].getTime() : 0;
+    var mid = String(data[i][19] || '').trim(), cur = String(data[i][7] || '');
+    if (!mid || at < since || cur.indexOf('コメント: ') >= 0) continue;
+    try {
+      var c = _exVal_(GmailApp.getMessageById(mid).getPlainBody(), 'お問合せ内容コメント');
+      if (!c) continue;
+      sh.getRange(i + 2, 8).setValue([cur, c].filter(Boolean).join(' ／ コメント: '));
+      rows.push(i + 2); n++;
+    } catch (e) { console.warn('[コメント補完] ' + (i + 2) + '行目: ' + e.message); }
+  }
+  try { if (rows.length) cfSyncRows(INQUIRY_SHEET_NAME, rows, '問い合わせのコメント'); } catch (eCf) {}
+  console.log('コメントを足した: ' + n + '件');
+}
+
 /** 本文からラベルに対応する値を抽出（全角/半角コロン・空白区切りの両対応、行頭アンカー）
  *  転送メール対策: 行頭の引用記号(>｜|)や空白も許容する。 */
 function _exVal_(body, label) {
@@ -147,7 +171,8 @@ function _parseSuumoInquiryEmail_(subject, body, fallbackDate) {
     email: _exVal_(body, 'メールアドレス'),
     tel: _exVal_(body, 'ＴＥＬ') || _exVal_(body, 'TEL'),
     contactMethod: _exVal_(body, '連絡方法'),
-    message: _exVal_(body, 'お問合せ内容'),
+    // お客様が自分で書いた「お問合せ内容コメント」も足す（2026-10-10 取り込んでいなかった）
+    message: [_exVal_(body, 'お問合せ内容'), _exVal_(body, 'お問合せ内容コメント')].filter(Boolean).join(' ／ コメント: '),
     propertyName: _exVal_(body, '物件名'),
     propertyCode: _exVal_(body, '物件コード'),
     rent: _exVal_(body, '賃料'),

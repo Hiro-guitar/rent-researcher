@@ -4689,7 +4689,7 @@ function _isEmailLineRegistered_(email) {
     if (sh) {
       var data = sh.getDataRange().getValues();
       for (var i = 1; i < data.length; i++) {
-        if (String(data[i][0] || '').trim().toLowerCase() === email.toLowerCase()) return true;
+        if (_emailKey_(data[i][0]) === _emailKey_(email)) return true;
       }
     }
   } catch (e) {}
@@ -4720,7 +4720,7 @@ function _isEmailOwnedByLineCustomer_(email) {
     // B列(2)=顧客名 … AF列(32)=メール
     var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 32).getValues();
     for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i][31] || '').trim().toLowerCase() !== email) continue;
+      if (_emailKey_(rows[i][31]) !== _emailKey_(email)) continue;
       var name = String(rows[i][1] || '').trim();
       if (name && lineMap[name]) return true;
     }
@@ -4740,7 +4740,7 @@ function _isEmailUnsubscribed_(email) {
     if (!sh) return false;
     var data = sh.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0] || '').trim().toLowerCase() === email.toLowerCase()) return true;
+      if (_emailKey_(data[i][0]) === _emailKey_(email)) return true;
     }
   } catch (e) {}
   return false;
@@ -4805,7 +4805,7 @@ function handleCheckFollowupStatus(e) {
     if (lineSheet) {
       var lineData = lineSheet.getDataRange().getValues();
       for (var i = 1; i < lineData.length; i++) {
-        if (lineData[i][0] === emailAddr) {
+        if (_emailKey_(lineData[i][0]) === _emailKey_(emailAddr)) {
           lineRegistered = true;
           break;
         }
@@ -4818,7 +4818,7 @@ function handleCheckFollowupStatus(e) {
     if (unsubSheet) {
       var unsubData = unsubSheet.getDataRange().getValues();
       for (var j = 1; j < unsubData.length; j++) {
-        if (unsubData[j][0] === emailAddr) {
+        if (_emailKey_(unsubData[j][0]) === _emailKey_(emailAddr)) {
           unsubscribed = true;
           break;
         }
