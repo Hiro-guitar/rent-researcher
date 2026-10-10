@@ -98,6 +98,9 @@
   .inq { font-size: 13px; margin-top: 4px; }
   .inq a { color: var(--green); font-weight: 700; }
   .crit { display: flex; flex-direction: column; gap: 4px; }
+  .csum { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; margin: 4px 0 6px; }
+  .csum .k { color: var(--muted); white-space: nowrap; }
+  .csum .v { min-width: 0; overflow-wrap: anywhere; }
   .prop { display: grid; grid-template-columns: 22px 72px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair); }
   .prop.on { background: var(--green-soft); }
   .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: contain; border-radius: 4px; background: #fff; cursor: zoom-in; }   /* 間取り図が見切れないよう全体を出す */
@@ -264,7 +267,8 @@
   <div class="foot" id="foot"></div>
 </div>
 <div class="toast" id="toast"></div>
-<div class="slide-bg" id="slideBg" onclick="closeEdit()"></div>
+<div class="slide-bg" id="slideBg" onclick="closeEdit();closeCrit()"></div>
+<div class="slide" id="critSlide"><div class="sh"><b id="critSlideTitle"></b><button class="btn" onclick="closeCrit()">✕ 閉じる（保存しない）</button></div><div class="sbody" id="critSlideBody"></div></div>
 <div class="slide" id="slide"><div class="sh"><b id="slideTitle"></b><button class="btn save" onclick="saveEdit()">保存する</button><button class="btn" onclick="closeEdit()">✕ 閉じる</button></div><div class="sbody" id="slideBody"></div></div>
 <div class="lb" id="lb" hidden onclick="if(event.target===this)lbClose()"><button class="lbn" style="left:16px" onclick="lbGo(-1)">‹</button><img id="lbImg"><button class="lbn" style="right:16px" onclick="lbGo(1)">›</button><div class="lbc" id="lbCap"></div></div>
 
@@ -309,12 +313,11 @@
 
   function metaOf(c) {
     var m = [];
-    if (c.daysSinceInquiry !== null && c.daysSinceInquiry !== undefined) m.push('反響から' + c.daysSinceInquiry + '日');
     if (c.callSlots && (c.node === 'callQueue' || c.node === 'callWait')) m.push('架電 ' + c.callSlots);
     else if (c.failedCalls) m.push('つながらず' + c.failedCalls + '回');
     if (c.lastTalkAt) m.push('最後に話した ' + c.lastTalkAt);
     if (c.daysSinceSent !== null && c.daysSinceSent !== undefined) m.push('最終送信 ' + c.daysSinceSent + '日前');
-    if (c.moveIn) m.push('引越し ' + c.moveIn);
+    if (c.moveIn) m.push('引越し希望日 ' + c.moveIn);
     if (c.endWhy) m.push('終了: ' + c.endWhy);
     if (c.tasks && c.tasks.length) m.push('予定: ' + c.tasks.join('、'));
     return m.join(' ・ ');
@@ -492,6 +495,7 @@
       }
       slot.appendChild(f);
     }
+    drawCrit(c);
   }
 
   // ── やること（タスク）──
@@ -607,7 +611,7 @@
         + (q.content ? '<div class="meta">' + esc(q.content) + '</div>' : '') + '</div>';
     }).join('') : '<div class="meta">問い合わせの記録はありません</div>';
 
-    h += '<div class="sec">条件</div>' + critHtml(c);
+    h += '<div class="sec">条件</div>' + critSummaryHtml(c);
 
     h += '<div class="sec">メモ（お客様には見えません）</div>'
       + '<textarea id="memo" class="memo" oninput="memoInput(' + n + ',this.value)" onblur="memoSave(' + n + ')">' + esc(x.memoDraft) + '</textarea>'
@@ -696,13 +700,72 @@
       h += '<label class="fl">ペットの種類</label><input class="inp" value="' + esc(f.petType) + '" placeholder="例: 小型犬、猫" oninput="critSet(\'petType\',this.value)">';
     if (f.equipment.indexOf('駐車場あり') >= 0)
       h += '<label class="fl">車種</label><input class="inp" value="' + esc(f.carModel) + '" placeholder="例: 軽自動車" oninput="critSet(\'carModel\',this.value)">';
-    h += '<label class="fl">引越し時期</label>' + moveInHtml(f)
+    h += '<label class="fl">引越し希望日</label>' + moveInHtml(f)
       + '<label class="chk"><input type="checkbox"' + (f.moveInStrict ? ' checked' : '') + ' onchange="critSet(\'moveInStrict\',this.checked)"> この時期は厳守</label>';
     h += '<label class="fl">その他</label><textarea class="inp" rows="2" oninput="critSet(\'notes\',this.value)">' + esc(f.notes) + '</textarea>';
     h += '<div class="acts"><button class="btn save" onclick="saveCrit(false)">' + (x.critSaving ? '保存中…' : '保存する') + '</button>'
       + (c.lineUid ? '<button class="btn save line" onclick="saveCrit(true)">保存してLINEで送る</button>' : '') + '</div>'
       + (c.lineUid ? '<div class="meta">「LINEで送る」を押すと、お客様に条件のカードが届きます。</div>' : '<div class="meta">LINEがつながっていないので、お客様には届きません。</div>');
     return h + '</div>';
+  }
+  // ── 今の条件（読むだけ）。変えるときは右からスライドで出す ──
+  var critOpenFor = '';
+  function critSummaryHtml(c) {
+    if (c.lineOnly) return '<div class="meta">名前がまだ分からないので、条件は入れられません。LINEで名前を聞いてから入れてください。</div>';
+    var x = extras[c.name] || {};
+    var f = x.critSaving || c.criteria;   // 保存した直後は、押した内容を先に出す
+    var btn = '<button class="btn" onclick="openCrit()">✎ 条件を変える</button>';
+    if (!f) return '<div class="meta">まだ条件が入っていません。</div><div class="acts">' + btn + '</div>';
+    var rows = [], area = '';
+    if (f.areaMethod === 'city') {
+      area = (f.cities || []).map(function (ct) {
+        var ts = (f.towns && f.towns[ct]) || [];
+        return esc(ct) + (ts.length ? '<span class="meta">（' + ts.map(esc).join('・') + '）</span>' : '');
+      }).join('<br>');
+    } else {
+      area = Object.keys(f.routes || {}).map(function (rn) {
+        var st = f.routes[rn] || [];
+        return esc(rn) + ' <span class="meta">' + (st.length ? st.map(esc).join('・') : '駅の指定なし') + '</span>';
+      }).join('<br>');
+    }
+    rows.push([f.areaMethod === 'city' ? '市区町村' : '路線・駅', area]);
+    rows.push(['賃料の上限', f.rentMax ? esc(f.rentMax) + '万円' : '']);
+    rows.push(['間取り', (f.layouts || []).map(esc).join('・')]);
+    rows.push(['駅徒歩', esc(f.walk || '')]);
+    rows.push(['広さ', f.areaMin ? esc(f.areaMin) + (/m/.test(f.areaMin) ? '' : 'm²') + '以上' : '']);
+    rows.push(['築年数', esc(f.age || '')]);
+    rows.push(['構造', (f.structures || []).map(esc).join('・')]);
+    rows.push(['こだわり', (f.equipment || []).map(esc).join('・')]);
+    if (f.petType) rows.push(['ペット', esc(f.petType)]);
+    if (f.carModel) rows.push(['車種', esc(f.carModel)]);
+    rows.push(['引越し希望日', f.moveIn ? esc(f.moveIn) + (f.moveInStrict ? '（厳守）' : '') : '']);
+    if (f.notes) rows.push(['その他', esc(f.notes).replace(/\n/g, '<br>')]);
+    return '<div class="csum">' + rows.map(function (r) {
+      return '<div class="k">' + r[0] + '</div><div class="v">' + (r[1] || '<span class="meta">指定なし</span>') + '</div>';
+    }).join('') + '</div>' + (x.critSaving ? '<div class="meta">保存中…</div>' : '') + '<div class="acts">' + btn + '</div>';
+  }
+  function openCrit() {
+    var x = extras[selName]; x.crit = null; x.typing = {};   // 開くたびに、今登録されている条件から始める
+    critOpenFor = selName;
+    document.getElementById('critSlideTitle').textContent = selName + ' さんの条件を変える';
+    document.getElementById('critSlideBody').scrollTop = 0;
+    document.getElementById('critSlide').classList.add('on');
+    document.getElementById('slideBg').classList.add('on');
+    render();
+  }
+  function closeCrit() {
+    if (!critOpenFor) return;
+    var x = extras[critOpenFor]; if (x) x.crit = null;
+    critOpenFor = '';
+    document.getElementById('critSlide').classList.remove('on');
+    if (!ed) document.getElementById('slideBg').classList.remove('on');
+  }
+  function drawCrit(c) {
+    if (!critOpenFor) return;
+    if (!c || c.name !== critOpenFor) { closeCrit(); return; }
+    var body = document.getElementById('critSlideBody'), top = body.scrollTop;
+    body.innerHTML = critHtml(c);
+    body.scrollTop = top;
   }
   // 選択肢から選ぶか、「その他」で数字を入れる（広さ・築年数・徒歩）
   function pickOrType(list, value, field, unit) {
@@ -871,20 +934,21 @@
   function removeRoute(rn) { delete critOf(selName).routes[rn]; render(); }
   function openRoute(rn) { var x = extras[selName]; x.critOpenRoute = (x.critOpenRoute === rn) ? '' : rn; render(); }
   function toggleStation(v) { var x = extras[selName]; toggleIn(critOf(selName).routes[x.critOpenRoute], v); render(); }
-  // 押したらすぐ終わったことにして、保存は裏で（順番待ちの列）。フォームは入れた内容のまま。
-  // 保存が終わったとき、そのあと書き換えていなければサーバーの値に入れ替える。失敗したら知らせて、入れた内容は残す。
+  // 押したらすぐスライドを閉じて、保存は裏で（順番待ちの列）。保存が終わるまでは、押した内容を「今の条件」に出しておく。
   function saveCrit(send) {
     var name = selName, x = extras[name];
-    var sent = JSON.stringify(x.crit || null);
+    var sent = JSON.stringify(critOf(name));
+    x.critSaving = JSON.parse(sent);
     toast(send ? '保存してお客様に送ります（裏で）' : '保存しました');
+    closeCrit(); render();
     Q()
       .withSuccessHandler(function (d) {
-        if (JSON.stringify(x.crit || null) === sent) x.crit = null;
+        x.critSaving = null;
         applyResult(d); render();
         if (send || d.savedMessage) toast(d.savedMessage || '保存しました');
       })
-      .withFailureHandler(function (e) { toast(name + 'さんの条件を保存できませんでした: ' + e.message + '（入れた内容は残っています。もう一度押してください）'); render(); })
-      .saveCrmCriteria(name, x.crit, !!send);
+      .withFailureHandler(function (e) { x.critSaving = null; toast(name + 'さんの条件を保存できませんでした: ' + e.message + '（もう一度「条件を変える」から入れてください）'); render(); })
+      .saveCrmCriteria(name, JSON.parse(sent), !!send);
   }
 
   // ── 送る（物件の横並びカード＋スタッフの一言） ──
@@ -1805,6 +1869,7 @@
       return;
     }
     if (ev.key === 'Escape' && ed) closeEdit();
+    else if (ev.key === 'Escape' && critOpenFor) closeCrit();
   });
 
   function reload() {
