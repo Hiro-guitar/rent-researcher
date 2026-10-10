@@ -207,6 +207,8 @@ function _crmTreeContactLog_(ss) {
       if (outcome === 'talked' && type.indexOf('電話') >= 0 && ms > r.talkMs) r.talkMs = ms;
       if (ms) r.contactMs.push(ms);
       if (ms > r.lastMs) r.lastMs = ms;
+      // こちらから連絡した時刻（電話・LINE・手で送ったメール）。自動返信メール・条件変更などの「その他」は数えない
+      if (ms > (r.outMs || 0) && (/^(電話|LINE)/.test(type) || (type === 'メール' && String(rows[i][3] || '').indexOf('自動返信') !== 0))) r.outMs = ms;
     }
   } catch (e) { console.warn('[樹形図] 対応ログ: ' + e.message); }
   return out;
@@ -497,6 +499,10 @@ function getCrmTree(opts) {
     (family.byName[c.name] || []).forEach(function (fm) { if ((replyByUid[fm.uid] || 0) > c.replyMs) c.replyMs = replyByUid[fm.uid]; });
     c.family = (family.byName[c.name] || []).map(function (fm) { return { uid: fm.uid, disp: fm.disp }; });
     c.daysSinceHandled = cl.lastMs ? (todayIdx - _jstDayIndex_(cl.lastMs)) : null;
+    // 最後にこちらから連絡してから何日（電話・LINE・メール・物件の送付のうち一番新しいもの）
+    var _outD = cl.outMs ? (todayIdx - _jstDayIndex_(cl.outMs)) : null;
+    if (c.daysSinceSent !== null && c.daysSinceSent !== undefined && (_outD === null || c.daysSinceSent < _outD)) _outD = c.daysSinceSent;
+    c.daysSinceOut = _outD;
     c.sig = _crmTreeSignals_(acts[c.name], cl.lastMs, c.replyMs, cl.inquiryMs);
     var tsAll = tasks[c.name] || [];
     // 昔の「次の連絡」タスクは、やることには出さず、次に赤くする日として使う（CRMグループ D列が無いとき）
@@ -617,7 +623,7 @@ function _crmTreeForPage_(only) {
         daysSinceInquiry: c.daysSinceInquiry, failedCalls: c.failedCalls || 0,
         callSlots: (c.callSlots && c.callSlots.first !== undefined) ? c.callSlots.label : '',
         email: c.email || '',
-        daysSinceSent: c.daysSinceSent, daysSinceViewed: c.daysSinceViewed,
+        daysSinceSent: c.daysSinceSent, daysSinceViewed: c.daysSinceViewed, daysSinceOut: c.daysSinceOut,
         lastTalkAt: c.lastTalkAt || '', moveIn: c.moveIn || '',
         note: (c.sig && c.sig.note) || '', viewNote: (c.sig && c.sig.viewNote) || '',
         endWhy: c.endWhy || '', stage: c.stage || '', nextAuto: c.nextAuto || '',

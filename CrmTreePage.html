@@ -317,6 +317,7 @@
     var m = [];
     if (c.callSlots && (c.node === 'callQueue' || c.node === 'callWait')) m.push('架電 ' + c.callSlots);
     else if (c.failedCalls) m.push('つながらず' + c.failedCalls + '回');
+    if (c.daysSinceOut !== null && c.daysSinceOut !== undefined) m.push('最後にこちらから連絡 ' + (c.daysSinceOut ? c.daysSinceOut + '日前' : '今日'));
     if (c.moveIn) m.push('引越し希望日 ' + c.moveIn);
     if (c.endWhy) m.push('終了: ' + c.endWhy);
     if (c.tasks && c.tasks.length) m.push('予定: ' + c.tasks.join('、'));
