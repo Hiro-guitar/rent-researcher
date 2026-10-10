@@ -343,18 +343,41 @@ function _crmTreeLineMsByUid_(ss) {
   return out;
 }
 
-/** LINE友だち追加: userId → { addedMs, nudgedMs, displayName } */
+var CRM_LINE_ONLY_END_COL = 9;   // LINE友だち追加の I列: 〔LINEのみ〕の人を手で終了にした日時（空なら追客中）
+
+/** 〔LINEのみ〕の人（名前が無いので検索条件シートに行が無い）を終了にする／戻す。 */
+function setCrmLineOnlyEnded(name, uid, ended) {
+  uid = String(uid || '').trim();
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(NEW_FRIEND_SHEET);
+  if (!uid || !sh || sh.getLastRow() < 2) throw new Error('LINEの友だちの記録が見つかりません');
+  var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0] || '').trim() !== uid) continue;
+    sh.getRange(i + 2, CRM_LINE_ONLY_END_COL).setValue(ended ? new Date() : '');
+    try { cfSyncRows(NEW_FRIEND_SHEET, [i + 2], '終了'); } catch (eCf) {}
+    var t = _crmTreeForPage_(name);
+    t.savedMessage = ended ? '終了にしました' : '戻しました';
+    return t;
+  }
+  throw new Error('LINEの友だちの記録が見つかりません');
+}
+
+/** LINE友だち追加: userId → { addedMs, nudgedMs, displayName, endedMs } */
 function _crmTreeNewFriends_(ss) {
   var out = {};
   var sh = ss.getSheetByName(NEW_FRIEND_SHEET);
   if (!sh || sh.getLastRow() < 2) return out;
-  sh.getRange(2, 1, sh.getLastRow() - 1, NEW_FRIEND_NUDGED_AT_COL).getValues().forEach(function (r) {
+  sh.getRange(2, 1, sh.getLastRow() - 1, CRM_LINE_ONLY_END_COL).getValues().forEach(function (r) {
     var uid = String(r[0] || '').trim();
     if (!uid) return;
+    // 催促は一番新しいものを使う。⚠️ G列は最初のひと押しだけなので、そのあと「空室確認だけ」のひと押し（F列）を
+    //   送っても、最初の催促に反応した人は永久に残っていた（2026-10-10 近藤さん）
+    var vf = _cellToEpochMs_(r[VACANCY_FOLLOWUP_COL - 1]);
     out[uid] = {
       addedMs: _cellToEpochMs_(r[1]),
       displayName: String(r[2] || '').trim(),
-      nudgedMs: _cellToEpochMs_(r[NEW_FRIEND_NUDGED_AT_COL - 1])
+      nudgedMs: Math.max(_cellToEpochMs_(r[NEW_FRIEND_NUDGED_AT_COL - 1]) || 0, vf || 0),
+      endedMs: _cellToEpochMs_(r[CRM_LINE_ONLY_END_COL - 1])
     };
   });
   return out;
@@ -445,6 +468,7 @@ function getCrmTree(opts) {
     if (knownUid[uid] || family.byUid[uid] || !f.addedMs || f.addedMs < old.frozenMs) return;   // 家族としてつないだ人は出さない
     customers.push({
       name: (f.displayName || actName[uid] || '（名前なし）') + '〔LINEのみ〕', lineOnly: true, uid: uid,
+      archived: !!f.endedMs, endWhy: f.endedMs ? '手で終了' : '',
       status: blockedOnly[uid] ? 'blocked' : '', stage: '', hasLine: true, hasPhone: false, hasCriteria: false,
       daysSinceTalk: null, daysSinceSent: null, daysSinceViewed: null,
       registeredAt: Utilities.formatDate(new Date(f.addedMs), 'Asia/Tokyo', 'yyyy/MM/dd')

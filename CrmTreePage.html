@@ -347,7 +347,11 @@
     }
     if (c.lineOnly) {
       // 名前の無いLINEの友だち。記録はLINEだけ（返信したら押す）
-      h += '<div class="acts"><button class="btn" onclick="rec(' + esc(JSON.stringify(c.name)) + ',\'LINE\')">📨 LINEした</button></div>';
+      var ln = esc(JSON.stringify(c.name)), lu = esc(JSON.stringify(c.uid || ''));
+      h += '<div class="acts">' + (c.stageId === 'ended'
+        ? '<button class="btn" onclick="lineOnlyEnd(' + ln + ',' + lu + ',false)">↩ 追客中に戻す</button>'
+        : '<button class="btn" onclick="rec(' + ln + ',\'LINE\')">📨 LINEした</button>'
+          + '<button class="btn" onclick="lineOnlyEnd(' + ln + ',' + lu + ',true)">終了にする</button>') + '</div>';
     }
     if (!c.lineOnly) {
       var n = esc(JSON.stringify(c.name));
@@ -1424,6 +1428,9 @@
     var v = (document.getElementById('newNm') || {}).value || '';
     if (!v.trim()) { toast('名前を入れてください'); return; }
     call('nameCrmLineOnly', [pseudo, uid, v.trim()], '登録しました');
+  }
+  function lineOnlyEnd(name, uid, ended) {
+    call('setCrmLineOnlyEnded', [name, uid, ended], ended ? '終了にしました' : '戻しました', function (c) { c.stageId = ended ? 'ended' : 'line'; c.todo = false; });
   }
   function mailStop(name, stop) {
     call('setCrmMailStop', [name, stop], stop ? 'メールを止めました' : 'メールを再開しました', function (c) { c.mailStopped = !!stop; });

@@ -98,7 +98,7 @@
     recordCrmTalk: 1, setCrmClosed: 1,
     sendCrmProperties: 1, saveCrmCriteria: 1, logCrmManualMessage: 1, copyCrmPropertyTo: 1, resendCrmToFamily: 1,
     addCrmCustomer: 1, renameCrmCustomer: 1, linkCrmLine: 1, linkCrmFamily: 1, unlinkCrmFamily: 1, nameCrmLineOnly: 1,
-    saveCrmPropertyEdit: 1, addCrmTask: 1, doneCrmTask: 1, setCrmTaskDue: 1, deleteCrmTask: 1, setCrmTaskOwner: 1, setCrmViewingWish: 1, setCrmMailStop: 1
+    saveCrmPropertyEdit: 1, addCrmTask: 1, doneCrmTask: 1, setCrmTaskDue: 1, deleteCrmTask: 1, setCrmTaskOwner: 1, setCrmViewingWish: 1, setCrmMailStop: 1, setCrmLineOnlyEnded: 1
   };
   // 押した瞬間に画面の順番待ちの列から呼ばれる。手元で先に動かした結果を覚えておき、列の番が来たら保存だけする
   var preApplied = [];
