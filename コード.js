@@ -4527,14 +4527,13 @@ var REQUIRED_TRIGGERS_ = [
   { fn: 'processFirstDeliveryFollow', make: function (b) { return b.everyMinutes(15); } },
   // 条件登録から数分後の「お電話で5分ほど」（PhoneAsk.js）
   { fn: 'processPhoneAsk',           make: function (b) { return b.everyMinutes(5); } },
-  // 3日続けて返事の無い人を終了にする（CrmTree.js）
-  { fn: 'processCrmIgnoreEnd',       make: function (b) { return b.atHour(21).everyDays(1); } },
   // Cloudflare版CRMの写し（CfSync.gs）: 5分ごとに送り漏れを拾い、夜（片付けのあと）に全部を送り直す
   { fn: 'cfSyncCheck',               make: function (b) { return b.everyMinutes(5); } },
   { fn: 'cfSyncAll',                 make: function (b) { return b.atHour(4).everyDays(1); } }
 ];
 // runConditionSuggestionAutoSend: 旧「条件変更提案 10日×3回」。継続確認（StillSearching.gs）に置き換えて廃止（2026-09-28）
-var OBSOLETE_TRIGGERS_ = ['pingWebAppKeepAlive_', 'autoArchiveFinishedCustomers', 'runConditionSuggestionAutoSend'];
+// processCrmIgnoreEnd: 3日続けて返事なしで終了。2026-10-10 やめた
+var OBSOLETE_TRIGGERS_ = ['pingWebAppKeepAlive_', 'autoArchiveFinishedCustomers', 'runConditionSuggestionAutoSend', 'processCrmIgnoreEnd'];
 
 function ensureProjectTriggers_() {
   var log = [];

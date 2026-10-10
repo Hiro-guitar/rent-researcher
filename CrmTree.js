@@ -1168,7 +1168,8 @@ var CRM_STAGES = [
   { id: 'won',       label: '成約',                      parent: '' },
   { id: 'ended',     label: '終了',                      parent: '' }
 ];
-var CRM_IGNORE_END_DAYS = 3;     // この日数 続けて返事が無ければ終了
+var CRM_IGNORE_END_DAYS = 3;     // この日数 続けて返事が無ければ終了（CRM_IGNORE_END_ON が true のときだけ）
+var CRM_IGNORE_END_ON = false;   // 2026-10-10 やめた（ユーザー判断）。無視の日数は表示だけ
 var CRM_GROUP_SHEET = 'CRMグループ';
 
 /** 顧客名 → 'A' | 'B' | 'C' */
@@ -1208,7 +1209,7 @@ function _crmStageOf_(c) {
   if (c.stage === '成約') return 'won';
   if (st === 'blocked' || st === 'paused' || st === 'auto_paused' || st === 'stopped') return 'ended';
   if (c.stage === '終了' || c.archived) return 'ended';
-  if (c.hasLine && c.ignoreDays >= CRM_IGNORE_END_DAYS && c.stage !== '申込') {
+  if (CRM_IGNORE_END_ON && c.hasLine && c.ignoreDays >= CRM_IGNORE_END_DAYS && c.stage !== '申込') {
     c.endWhy = c.ignoreDays + '日続けて返事なし'; return 'ended';
   }
   if (c.stage === '申込') return 'applied';
@@ -1285,6 +1286,7 @@ function _crmChipOf_(c) {
  * 何か来れば restoreStageIfAutoEnded で戻る。
  */
 function processCrmIgnoreEnd() {
+  if (!CRM_IGNORE_END_ON) return;
   var t = getCrmTree();
   var n = 0;
   t.customers.forEach(function (c) {
