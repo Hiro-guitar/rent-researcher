@@ -60,6 +60,7 @@ var CRM_TREE_REPLY_SHEET = 'LINE要返信';
 // ⚠️ 回数や日数では切らない。忙しくて連続でかけられない日があっても枠が埋まるまで待つ。
 var CRM_TREE_MAIL_DAYS = 14;        // メールだけの人は、反響からこの日数でLINEに来なければ終了
 var CRM_TREE_NUDGE_FALLBACK_D = 7;  // 催促の記録が無い登録待ちの人は、反響からこの日数で終了
+var CRM_TREE_REINQUIRY_SIGNAL = false;   // 再問い合わせを合図（赤・⚡）にするか
 var CRM_TREE_NUDGE_WAIT_H = 24;     // 催促のあと、この時間 何も無ければ終了
 var CRM_TREE_MOVEIN_SOON_D = 14;    // 引越し予定までこの日数を切ったら1回だけ赤く出す（ルールE 14日前）
 var CRM_TREE_FIRST_WAIT_DAYS = 7;
@@ -277,7 +278,8 @@ function _crmTreeSignals_(acts, handledMs, replyMs, inquiryMs) {
   // ⚠️ 初回の反響と同じ日のものは数えない（同時に2物件へ問い合わせる人がいる）
   // ⚠️ 直近 CRM_TREE_APPLY_DAYS 日のものだけ（2026-09-29）。期限が無いと、昔2回問い合わせて
   //   その後記録の無い人が何か月前のものでも全員赤くなった（16人）。
-  if (inq.length >= 2 && inq[inq.length - 1] > handledMs
+  // ⚠️ 2026-10-10 合図にするのはやめた（ユーザー判断: そんなに大事な指標ではない）。2回問い合わせたことは「問い合わせた物件」の一覧で分かる
+  if (CRM_TREE_REINQUIRY_SIGNAL && inq.length >= 2 && inq[inq.length - 1] > handledMs
       && inq[inq.length - 1] >= Date.now() - CRM_TREE_APPLY_DAYS * _DAY_MS_
       && _jstDayIndex_(inq[inq.length - 1]) > _jstDayIndex_(inq[0])) {
     sig.reInquiry = inq[inq.length - 1];
