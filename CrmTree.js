@@ -491,7 +491,8 @@ function getCrmTree(opts) {
     // 無視の日数: 最後にお客様が応じた時刻（LINEの文・タップ・電話で話せた）より後に、こちらが連絡した日の数
     c.respondedMs = Math.max(c.lineMs || 0, (uid ? (replyByUid[uid] || 0) : 0), cl.talkMs || 0);
     var _ignDays = {};
-    (cl.contactMs || []).forEach(function (m) { if (m > c.respondedMs) _ignDays[_jstDayIndex_(m)] = true; });
+    // ⚠️ 今日の連絡は数えない。送った次の日を「無視1日目」にする（当日はまだ返事が来るかもしれない。ユーザー判断 2026-10-10）
+    (cl.contactMs || []).forEach(function (m) { if (m > c.respondedMs && _jstDayIndex_(m) < todayIdx) _ignDays[_jstDayIndex_(m)] = true; });
     c.ignoreDays = Object.keys(_ignDays).length;
     c.group = groups[c.name] || '';
     c.failedCalls = cl.failed;
