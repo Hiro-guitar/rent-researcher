@@ -1047,7 +1047,8 @@ function _crmTreeNextAuto_(c, ctx) {
   var delivering = !(st === 'paused' || st === 'auto_paused' || st === 'stopped' || st === 'snoozed');
 
   // 条件登録直後の「お電話で5分ほど」
-  if (ctx.phoneAsk[c.name]) items.push({ ms: ctx.phoneAsk[c.name], text: '電話のお願い（' + _crmFmt_(ctx.phoneAsk[c.name], true) + 'ごろ）' });
+  // 止めてある自動（PHONE_ASK_ENABLED / FIRST_SEARCH_ENABLED が false）は出さない
+  if (ctx.phoneAsk[c.name] && typeof PHONE_ASK_ENABLED !== 'undefined' && PHONE_ASK_ENABLED) items.push({ ms: ctx.phoneAsk[c.name], text: '電話のお願い（' + _crmFmt_(ctx.phoneAsk[c.name], true) + 'ごろ）' });
 
   // 返事待ち → 期限で終了（これが一番近い予定）
   var w = ctx.waiting[c.name];
@@ -1074,7 +1075,8 @@ function _crmTreeNextAuto_(c, ctx) {
       items.push({ ms: rMs, text: '初回配信の再送（' + _crmFmt_(Math.max(rMs, now), true) + 'ごろ・見ていなければ）' });
     }
     // 初回検索が0件なら相談カード（登録7日以内・まだ1件も送っていない）
-    if ((c.daysSinceSent === null || c.daysSinceSent === undefined) && !ctx.fsAsked[c.name]
+    if (typeof FIRST_SEARCH_ENABLED !== 'undefined' && FIRST_SEARCH_ENABLED
+        && (c.daysSinceSent === null || c.daysSinceSent === undefined) && !ctx.fsAsked[c.name]
         && c.daysSinceInquiry !== null && c.daysSinceInquiry <= FIRST_SEARCH_MAX_AGE_D) {
       items.push({ ms: now, text: '次の検索が0件なら相談カード' });
     }

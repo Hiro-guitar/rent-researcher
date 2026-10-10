@@ -98,6 +98,8 @@
   .inq { font-size: 13px; margin-top: 4px; }
   .inq a { color: var(--green); font-weight: 700; }
   .crit { display: flex; flex-direction: column; gap: 4px; }
+  .pen { border: none; background: none; cursor: pointer; font-size: 13px; padding: 0 2px; opacity: .6; }
+  .pen:hover { opacity: 1; }
   .csum { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; margin: 4px 0 6px; }
   .csum .k { color: var(--muted); white-space: nowrap; }
   .csum .v { min-width: 0; overflow-wrap: anywhere; }
@@ -315,8 +317,6 @@
     var m = [];
     if (c.callSlots && (c.node === 'callQueue' || c.node === 'callWait')) m.push('架電 ' + c.callSlots);
     else if (c.failedCalls) m.push('つながらず' + c.failedCalls + '回');
-    if (c.lastTalkAt) m.push('最後に話した ' + c.lastTalkAt);
-    if (c.daysSinceSent !== null && c.daysSinceSent !== undefined) m.push('最終送信 ' + c.daysSinceSent + '日前');
     if (c.moveIn) m.push('引越し希望日 ' + c.moveIn);
     if (c.endWhy) m.push('終了: ' + c.endWhy);
     if (c.tasks && c.tasks.length) m.push('予定: ' + c.tasks.join('、'));
@@ -327,7 +327,8 @@
     var name = c.lineOnly ? esc(c.name)
       : '<a target="_blank" href="' + esc(customerPageUrl + '&customer=' + encodeURIComponent(c.name)) + '">' + esc(c.name) + '</a>';
     var tel = c.phone ? ' <a class="meta" href="tel:' + esc(c.phone) + '">📞 ' + esc(c.phone) + '</a>' : '';
-    var h = '<div class="cust"><div class="name">' + name + tel + '</div>';
+    var pen = c.lineOnly ? '' : ' <button class="pen" title="名前を変える" onclick="renameAsk(' + esc(JSON.stringify(c.name)) + ')">✏️</button>';
+    var h = '<div class="cust"><div class="name">' + name + pen + tel + '</div>';
     if (c.note) h += '<div class="note">' + esc(c.note) + '</div>';
     if (c.viewNote) h += '<div class="meta">👀 ' + esc(c.viewNote) + '</div>';
     var meta = metaOf(c);
@@ -1386,7 +1387,7 @@
         + '<input class="inp" placeholder="顧客名で探す" value="' + esc(q) + '" oninput="linkQ[selName]=this.value;fillWhoHits()">'
         + '<div id="whoHits">' + whoHitsHtml(c) + '</div>';
     }
-    var ren = '<div class="acts"><button class="btn" onclick="renameAsk(' + n + ')">✏️ 名前を変える</button></div>';
+    var ren = '';   // 名前を変えるのは、名前の後ろの ✏️
     if (c.family && c.family.length) {
       ren += '<div class="sec">家族のLINE（物件と一言は家族にも届きます）</div>' + c.family.map(function (fm) {
         return '<div class="inq">👪 ' + esc(fm.disp || 'LINE') + ' <button class="opt" onclick="unlinkFamily(' + esc(JSON.stringify(fm.uid)) + ')">外す</button></div>';
