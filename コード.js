@@ -536,6 +536,12 @@ function doPost(e) {
         replyMessage(replyToken, [textMsg(
           'メールアドレスを承りました。\nありがとうございます。'
         )]);
+        // 問い合わせのときのメールなら、その人と結ぶ（先にLINEで条件を登録した人は1人にまとめる）。
+        // ⚠️ 2026-10-10: ここでは控えるだけだったので、表示名の行と問い合わせの行が2人に分かれたまま残っていた
+        try {
+          if (typeof _vacancyLinkByEmail_ === 'function') console.log('[メール登録] 本人確定: ' + JSON.stringify(_vacancyLinkByEmail_(userId, message)));
+        } catch (eLk) { console.error('[メール登録] 本人確定に失敗: ' + eLk.message); }
+        try { if (typeof cfSyncAfterCrmWrite_ === 'function') cfSyncAfterCrmWrite_(); } catch (eCf) {}
         return;
       }
 
