@@ -55,6 +55,13 @@ function writeToSheet(userId, state) {
     }
   }
   const d = state.data;
+  // ⚠️ LINEがもう顧客とつながっていれば（LINE Users に顧客名がある）、その名前で書く（2026-10-10）。
+  //   登録の途中でメールを送って本人が決まった人が、始めたときの LINEの表示名（例: Yuto Ibusuki）で別の行になり、
+  //   問い合わせの行（指宿裕人）が「条件登録待ち」に残っていた。
+  try {
+    var _linked = (typeof _getLineUserName_ === 'function') ? String(_getLineUserName_(userId) || '').trim() : '';
+    if (_linked && _linked !== d.name) { console.log('[条件登録] 名前を顧客名に合わせる: ' + (d.name || '（空）') + ' → ' + _linked); d.name = _linked; }
+  } catch (eLn) {}
   // 名前が未取得の場合はここでLINEプロフィールから取得（startSearchFlowでは取得しない）
   if (!d.name) {
     try {

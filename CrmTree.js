@@ -345,6 +345,18 @@ function _crmTreeLineMsByUid_(ss) {
 
 var CRM_LINE_ONLY_END_COL = 9;   // LINE友だち追加の I列: 〔LINEのみ〕の人を手で終了にした日時（空なら追客中）
 
+/**
+ * 【GASエディタで実行: CrmTree.gs】条件登録がLINEの表示名の行に入ってしまい、同じ人が2人になった分を1人にまとめる（2026-10-10）。
+ * 左（LINEとつながっている顧客名）に、右（表示名の行）の条件を移して、右の行を消す。
+ */
+function mergeSplitCustomersNow() {
+  [['指宿裕人', 'Yuto Ibusuki'], ['小久保直哉', '直哉'], ['河原塚実', '河原塚 実']].forEach(function (p) {
+    var r = executeCustomerMerge(p[0], p[1], null);
+    console.log(p[1] + ' → ' + p[0] + ': ' + (r && r.success ? 'まとめました' : '失敗 ' + (r && r.message)));
+  });
+  try { cfSyncAfterCrmWrite_(); } catch (eCf) {}
+}
+
 /** 〔LINEのみ〕の人（名前が無いので検索条件シートに行が無い）を終了にする／戻す。 */
 function setCrmLineOnlyEnded(name, uid, ended) {
   uid = String(uid || '').trim();
