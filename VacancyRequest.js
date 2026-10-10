@@ -320,29 +320,14 @@ function _vacancyEntryContext_(userId) {
  * 同じ建物は1つにまとめる。電話反響はメールが無いので自然に外れる。
  * @return {Array<{renban,building,url,name,at}>}
  */
-/**
- * メールを照らし合わせるための形。小文字にして、Gmail は「.」と「+以降」を無視する（Gmail では同じ受信箱に届く）。
- * ⚠️ 2026-10-10: SUUMOでは chipi.chipi0902@gmail.com、LINEでは chipichipi0902@gmail.com と送ってきた人が結びつかなかった。
- */
+/** メールを照らし合わせるための形（前後の空白を取って小文字にするだけ）。 */
 function _emailKey_(e) {
   e = String(e || '').trim().toLowerCase();
   var at = e.lastIndexOf('@');
   if (at < 0) return e;
   var local = e.substring(0, at), dom = e.substring(at + 1);
-  if (dom === 'gmail.com' || dom === 'googlemail.com') { local = local.split('+')[0].replace(/\./g, ''); dom = 'gmail.com'; }
+  // ⚠️ Gmail の「.」違いを同じとみなすのはやめた（2026-10-10 ユーザー判断）。違うアドレスは違うものとして扱う
   return local + '@' + dom;
-}
-
-/**
- * 【GASエディタで実行: VacancyRequest.gs】LINEで送ってきたメールで、顧客と結び直す（Gmailの「.」違いで結びつかなかった人用）。
- * 結びたい人の userId とメールを LINKS に入れて実行する。
- */
-function relinkLineByEmailNow() {
-  var LINKS = [
-    ['Ua3146126c0201650fa3365bdb6305673', 'chipichipi0902@gmail.com']   // ちひろ → 野崎（SUUMOは chipi.chipi0902@gmail.com）
-  ];
-  LINKS.forEach(function (l) { console.log(l[1] + ': ' + JSON.stringify(_vacancyLinkByEmail_(l[0], l[1]))); });
-  try { cfSyncAfterCrmWrite_(); } catch (eCf) {}
 }
 
 function _vacancyFindInquiriesByEmails_(emails) {
