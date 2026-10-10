@@ -136,7 +136,7 @@ function _cfSheets_() { return [
   NEW_FRIEND_SHEET, LINE_BLOCKED_ONLY_SHEET, SEEN_SHEET_NAME, ACTION_LOG_SHEET_NAME, VIEW_LOG_SHEET_NAME,
   STILL_SHEET, MOVE_IN_SHEET, PHONE_ASK_SHEET, FIRST_DELIVERY_SHEET, FIRST_SEARCH_SHEET,
   UNSUBSCRIBE_SHEET_NAME, LINE_EMAIL_SHEET_NAME, 'LINE Activity', 'メール送信履歴', CRM_CAND_SHEET, VACANCY_REQUEST_SHEET,
-  PENDING_SHEET_NAME, CRM_LINE_CHAT_SHEET
+  PENDING_SHEET_NAME, CRM_LINE_CHAT_SHEET, CRM_PSTAT_SHEET
 ]; }
 
 /**
@@ -229,7 +229,7 @@ function _cfCrmCallable_() {
     'renameCrmCustomer', 'resendCrmToFamily', 'saveCrmCriteria', 'saveCrmMemo', 'saveCrmPropertyEdit', 'sendCrmProperties',
     'setCrmClosed', 'setCrmGroup', 'setCrmNextContact', 'setCrmStage', 'setCrmWatch', 'skipCrmProperties', 'skipCrmProperty',
     'unlinkCrmFamily', 'unskipCrmProperty', 'uploadPropertyImage', 'getCrmPageConsts', 'setCrmCandidates',
-    'addCrmTask', 'doneCrmTask', 'setCrmTaskDue', 'deleteCrmTask', 'setCrmTaskOwner', 'setCrmViewingWish', 'setCrmMailStop', 'setCrmLineOnlyEnded'];
+    'addCrmTask', 'doneCrmTask', 'setCrmTaskDue', 'deleteCrmTask', 'setCrmTaskOwner', 'setCrmViewingWish', 'setCrmMailStop', 'setCrmLineOnlyEnded', 'setCrmPropStatus'];
 }
 function _cfCrmCall_(e) {
   var out;
@@ -259,7 +259,7 @@ function cfSyncAfterCrmWrite_() {
   if (cache.get('cfBlocked')) return;
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   [CRITERIA_SHEET_NAME, CRM_GROUP_SHEET, CRM_MEMO_SHEET, CRM_CAND_SHEET, TASK_SHEET_NAME, CONTACT_LOG_SHEET_NAME,
-    CRM_FAMILY_SHEET, LINE_USERS_SHEET_NAME, SEEN_SHEET_NAME].forEach(function (name) {
+    CRM_FAMILY_SHEET, LINE_USERS_SHEET_NAME, SEEN_SHEET_NAME, CRM_PSTAT_SHEET].forEach(function (name) {
     try { var sh = ss.getSheetByName(name); if (sh) _cfCheckSheet_(sh, name, cache); }
     catch (e) { console.warn('[Cloudflare写し] ' + name + ': ' + e.message); }
   });

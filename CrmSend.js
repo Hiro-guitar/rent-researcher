@@ -461,6 +461,60 @@ function _crmWatchAll_() {
 }
 
 /** 画面: 送った物件のキャンセル待ちを付ける／外す。 */
+// ── 物件ごとの検討状況（2026-10-10）──
+// 送った物件それぞれに段階とメモを付ける。キャンセル待ちは今の仕組み（setCrmWatch）のまま。
+var CRM_PSTAT_SHEET = 'CRM物件の検討';   // A=顧客名 B=物件ID C=段階 D=内見の日時 E=メモ F=更新日時
+var CRM_PSTAT_STEPS = ['内見希望', '内見予定', '内見済み・検討中', '申込中', '見送り'];
+
+function _crmPropStatusAll_() {
+  var out = {};
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRM_PSTAT_SHEET);
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().forEach(function (r) {
+      var n = String(r[0] || '').trim(), rid = String(r[1] || '').trim();
+      var s = String(r[2] || '').trim(), m = String(r[4] || '').trim();
+      if (!n || !rid || (!s && !m)) return;
+      (out[n] = out[n] || {})[rid] = { s: s, w: String(r[3] || '').trim(), m: m };
+    });
+  } catch (e) { console.warn('[物件の検討] ' + e.message); }
+  return out;
+}
+
+/**
+ * 画面: 物件の段階・内見の日時・メモを保存する。null の項目は今のまま。
+ * 「申込中」にしたら、お客様も申込の段に移す（ユーザー決定 2026-10-10）。
+ */
+function setCrmPropStatus(customerName, roomId, step, when, memo) {
+  customerName = String(customerName || '').trim(); roomId = String(roomId || '').trim();
+  if (!customerName || !roomId) throw new Error('物件が分かりません');
+  if (step !== null && step !== undefined && step !== '' && CRM_PSTAT_STEPS.indexOf(step) < 0) throw new Error('段階が違います: ' + step);
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName(CRM_PSTAT_SHEET);
+  if (!sh) { sh = ss.insertSheet(CRM_PSTAT_SHEET); sh.appendRow(['顧客名', '物件ID', '段階', '内見の日時', 'メモ', '更新日時']); }
+  var row = -1, cur = ['', '', ''];
+  if (sh.getLastRow() > 1) {
+    var vals = sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      if (String(vals[i][0]).trim() === customerName && String(vals[i][1]).trim() === roomId) { row = i + 2; cur = [String(vals[i][2] || ''), String(vals[i][3] || ''), String(vals[i][4] || '')]; break; }
+    }
+  }
+  var s = (step === null || step === undefined) ? cur[0] : String(step);
+  var w = (when === null || when === undefined) ? cur[1] : String(when);
+  var m = (memo === null || memo === undefined) ? cur[2] : String(memo);
+  if (s !== '内見予定' && step !== null && step !== undefined) w = '';   // 内見の日時は「内見予定」のときだけ
+  var vals2 = [[customerName, roomId, s, w, m, new Date()]];
+  if (row > 0) sh.getRange(row, 1, 1, 6).setValues(vals2);
+  else { sh.appendRow(vals2[0]); row = sh.getLastRow(); }
+  try { cfSyncRows(CRM_PSTAT_SHEET, [row], '物件の検討'); } catch (eCf) {}
+  if (step === '申込中' && cur[0] !== '申込中') {
+    try { setCustomerStage(customerName, '申込'); } catch (eSt) { console.warn('[物件の検討] 申込の段に移せません: ' + eSt.message); }
+  }
+  var page = _crmTreeForPage_(customerName);
+  page.savedMessage = step === '申込中' && cur[0] !== '申込中' ? '申込中にしました（お客様も申込の段に移しました）' : '保存しました';
+  return page;
+}
+
 function setCrmWatch(customerName, roomId, on) {
   var r = setCancellationWatch(customerName, roomId, !!on);
   if (!r.ok) throw new Error(r.message);

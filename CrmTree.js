@@ -660,6 +660,7 @@ function _crmTreeForPage_(only) {
   var pend = (typeof _crmPendingAll_ === 'function') ? _crmPendingAll_(crits, only) : {};
   var watch = (typeof _crmWatchAll_ === 'function') ? _crmWatchAll_() : {};
   var cands = (typeof _crmCandidatesAll_ === 'function') ? _crmCandidatesAll_() : {};
+  var pstat = (typeof _crmPropStatusAll_ === 'function') ? _crmPropStatusAll_() : {};
   var page = {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -672,9 +673,10 @@ function _crmTreeForPage_(only) {
           .concat((watch[c.name] || []).some(function (w) { return w.status === 'available'; }) ? ['🔔キャンセル待ちが空いた'] : []),
         // ⚠️ キャンセル待ちの件数は名前の横に出さない（それほど大事ではない。⏳待ちのタブで見られる）
         // やること（タスク）: 済んでいないものを期日順に。行番号は直す・消すときの目印
-        taskList: (c.tasks || []).map(function (t) { return { row: t.row, content: t.content, due: t.due || '', owner: t.owner || '自分' }; })
+        taskList: (c.tasks || []).map(function (t) { return { row: t.row, content: t.content, due: t.due || '', owner: t.owner || '自分', roomId: t.roomId || '' }; })
           .sort(function (a, b) { return (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0; }),
         watch: watch[c.name] || [],
+        pstat: pstat[c.name] || {},   // 物件ごとの検討状況（roomId → { s: 段階, w: 内見の日時, m: メモ }）
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
         uid: c.lineOnly ? (c.uid || '') : '',   // 〔LINEのみ〕の人を顧客とつなぐときだけ使う
@@ -810,7 +812,7 @@ function _crmTreeOpenTasks_(ss) {
   try {
     var sh = ss.getSheetByName(TASK_SHEET_NAME);
     if (!sh || sh.getLastRow() < 2) return out;
-    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
+    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(8, Math.min(sh.getLastColumn(), 8))).getValues();
     for (var i = 0; i < rows.length; i++) {
       var n = String(rows[i][0] || '').trim();
       if (!n) continue;
@@ -818,7 +820,7 @@ function _crmTreeOpenTasks_(ss) {
       // owner（ボール）: 自分 ＝ こちらがやること / お客さん・管理会社 ＝ 相手の返事待ち（期日は催促する日）
       var d = rows[i][2];
       var due = (d instanceof Date) ? Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd') : '';
-      (out[n] = out[n] || []).push({ row: i + 2, content: String(rows[i][1] || ''), due: due, owner: _normalizeTaskOwner_(rows[i][5]) });
+      (out[n] = out[n] || []).push({ row: i + 2, content: String(rows[i][1] || ''), due: due, owner: _normalizeTaskOwner_(rows[i][5]), roomId: String(rows[i][7] || '').trim() });   // H列: どの物件の話か（空なら物件に関係なし）
     }
   } catch (e) { console.warn('[樹形図] タスク: ' + e.message); }
   return out;
@@ -926,11 +928,19 @@ function _crmTaskRowOf_(sh, customerName, row, content) {
   return -1;
 }
 /** 画面: やることを足す（due は yyyy-MM-dd か空）。 */
-function addCrmTask(customerName, content, due, owner) {
+function addCrmTask(customerName, content, due, owner, roomId) {
   content = String(content || '').trim();
   if (!content) throw new Error('やることを入れてください');
   var r = addCustomerTask(customerName, content, due || '', owner || TASK_OWNER_DEFAULT);
   if (!r || !r.success) throw new Error((r && r.message) || '足せませんでした');
+  if (roomId) {
+    // 物件のやること: H列にどの物件かを書く（物件の行の下にも出す）
+    var tsh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(TASK_SHEET_NAME), lr = tsh.getLastRow();
+    if (String(tsh.getRange(lr, 1).getValue()).trim() === customerName && String(tsh.getRange(lr, 2).getValue()).trim() === content) {
+      tsh.getRange(lr, 8).setValue(String(roomId));
+      try { cfSyncRows(TASK_SHEET_NAME, [lr], 'やること'); } catch (eCf) {}
+    }
+  }
   var page = _crmTreeForPage_(customerName); page.savedMessage = 'やることを足しました'; return page;
 }
 /** 画面: やることを済みにする。 */
