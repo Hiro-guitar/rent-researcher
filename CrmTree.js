@@ -251,10 +251,12 @@ function _crmTreeActions_(ss, names) {
   try {
     var sh = ss.getSheetByName('アクションログ');
     if (!sh || sh.getLastRow() < 2) return out;
-    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues();
+    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 10).getValues();
     for (var i = 0; i < rows.length; i++) {
       var n = String(rows[i][0] || '').trim();
       if (!n || !names[n]) continue;
+      // CRMで自分で付けた「内見希望」（申込区分＝スタッフ入力…）は、お客様からの合図にしない（2026-10-10 北澤さん）
+      if (String(rows[i][9] || '').indexOf('スタッフ入力') === 0) continue;
       var act = String(rows[i][2] || '').trim().toLowerCase();
       if (['view', 'hold', 'viewing', 'hold_intent', 'viewing_intent'].indexOf(act) < 0) continue;
       var ms = _cellToEpochMs_(rows[i][8]);
