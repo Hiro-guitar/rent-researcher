@@ -43,15 +43,25 @@ function _crmPendingAll_(crits, only) {
       var room = String(p.roomNumber || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/\D/g, '').replace(/^0+/, '');   // 「0605」と「605」は同じ部屋
       return room ? name + '|' + norm(p.buildingName) + '|' + room : '';   // 部屋番号が無ければ建物だけでは決めない
     };
-    var sentKeys = {};
+    var sentKeys = {}, skipAt = {}, pendAt = {};
+    var _at = function (v) { return (typeof _cellToEpochMs_ === 'function' ? _cellToEpochMs_(v) : 0) || 0; };
     for (var j = 0; j < data.length; j++) {
       // 送った・見送った部屋は、別のサイトの番号で残っている行も新着に出さない
       // ⚠️ 以前は「送った」だけを見ていて、まとめて見送っても同じ部屋の別の行が新着に残った（2026-10-08）
       var st0 = String(data[j][10]);
-      if (st0 !== 'sent' && st0 !== 'skipped') continue;
+      if (st0 !== 'sent' && st0 !== 'skipped' && st0 !== 'pending') continue;
       if (only && String(data[j][0] || '').trim() !== only) continue;   // 1人分だけのときは他の人を見ない
-      try { var k0 = bkey(String(data[j][0] || '').trim(), rowToProperty(data[j])); if (k0) sentKeys[k0] = true; } catch (_e0) {}
+      try {
+        var k0 = bkey(String(data[j][0] || '').trim(), rowToProperty(data[j]));
+        if (!k0) continue;
+        if (st0 === 'sent') sentKeys[k0] = true;
+        else if (st0 === 'skipped') skipAt[k0] = Math.max(skipAt[k0] || 0, _at(data[j][12]) || 1);
+        else pendAt[k0] = Math.max(pendAt[k0] || 0, _at(data[j][12]));
+      } catch (_e0) {}
     }
+    // 見送ったあとで「新着に戻す」をした部屋（戻した行のほうが新しい）は止めない。
+    // ⚠️ 2026-10-11: 別のサイトの番号の行が見送ったまま残っていて、戻した部屋が新着にも見送ったにも出ず消えていた
+    Object.keys(skipAt).forEach(function (kk) { if (!(pendAt[kk] > skipAt[kk])) sentKeys[kk] = true; });
     // 同じ部屋を別のサイトの番号でキャンセル待ちにしていたら、新着の方にも「キャンセル待ち中」と出す（2回付けないように）
     var watchKeys = {};
     watchRows.forEach(function (w) { var kw = bkey(w.name, w); if (kw) watchKeys[kw] = true; });
