@@ -53,6 +53,9 @@
     if (inflight > 0) { deltaWanted = true; return Promise.resolve({}); }
     if (deltaP) return deltaP;
     deltaP = fetch('/api/delta?since=' + lastU, { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      // ⚠️ 取りに行っている間にボタンが押されたら（手元だけの書き込みがある）、この差分は捨てて、保存が終わってから取り直す。
+      //   そのまま入れると、押したばかりの行が古い写しで上書き・切り詰められて元に戻って見えた（2026-10-11 候補へを続けて押すと新着に戻る）
+      if (inflight > 0) { deltaP = null; deltaWanted = true; return {}; }
       (d.rows || []).forEach(function (x) { GasShim.patchRow(x[0], x[1], x[2]); });
       (d.meta || []).forEach(function (m) { GasShim.truncate(m.sheet, m.rows); });
       lastU = d.now;
