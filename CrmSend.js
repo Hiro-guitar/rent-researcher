@@ -598,10 +598,36 @@ function getCrmPropLists(customerName) {
 }
 
 /** 画面: 見送った物件を新着に戻す。 */
+/** 同じ部屋かどうかの目印（建物名＋部屋番号）。別のサイトで見つけると物件の番号が別になるため。_crmPendingAll_ の bkey と同じ。 */
+function _crmRoomKey_(name, p) {
+  var norm = function (x) {
+    return String(x || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/[\s　・\-－ー]/g, '').toLowerCase();
+  };
+  var room = String(p.roomNumber || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/\D/g, '').replace(/^0+/, '');
+  return room ? name + '|' + norm(p.buildingName) + '|' + room : '';
+}
+
 function unskipCrmProperty(customerName, roomId) {
   var rows = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]);
   var n = 0;
   rows.forEach(function (r) { if (String(r.values[10]) === 'skipped') { updatePendingStatus(r.rowIndex, 'pending', ''); n++; } });
+  // ⚠️ 同じ部屋を別のサイトの番号でも見送っていたら、そちらも戻す。1つでも見送ったまま残ると、新着に出ないうえに
+  //   「見送った」にも残って、押しても何も起きないように見えた（2026-10-11 高橋 諒さん SYFORME TACHIKAWA）
+  if (rows.length) {
+    try {
+      var key = _crmRoomKey_(customerName, rowToProperty(rows[0].values));
+      if (key) {
+        var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+        var data = sh.getRange(2, 1, sh.getLastRow() - 1, 15).getValues();
+        for (var i = 0; i < data.length; i++) {
+          if (String(data[i][0] || '').trim() !== customerName || String(data[i][10]) !== 'skipped' || String(data[i][2]) === String(roomId)) continue;
+          var pp; try { pp = rowToProperty(data[i]); } catch (eP) { continue; }
+          if (_crmRoomKey_(customerName, pp) === key) { updatePendingStatus(i + 2, 'pending', ''); n++; }
+        }
+      }
+    } catch (eK) { console.warn('[新着に戻す] 同じ部屋の別の行: ' + eK.message); }
+  }
   if (!n) throw new Error('見送った物件が見つかりません');
   var page = _crmTreeForPage_(customerName);
   page.savedMessage = '新着に戻しました';
