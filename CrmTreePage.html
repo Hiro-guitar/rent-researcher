@@ -460,7 +460,26 @@
     }).join('') + '</div>';
   }
 
+  // ── 入力中は描き直さない ──
+  // ⚠️ 裏の保存が終わった・写しが届いたときに描き直すと、打っている途中のメモ・やること・一言の欄が作り直され、
+  //   カーソルが飛んだり日本語の変換が切れたりした（2026-10-11）。入力欄にいる間は待って、欄を離れたら描き直す。
+  //   自分で押した操作（クリック・選択）の直後は、すぐ描き直す。
+  var lastUserAct = 0, renderWanted = false;
+  ['click', 'change'].forEach(function (ev) { document.addEventListener(ev, function () { lastUserAct = Date.now(); }, true); });
+  function typingNow() {
+    var a = document.activeElement;
+    if (!a || a.id === 'q') return false;   // 名前の検索欄は描き直しても作り直されない
+    return a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|date|time|file)$/i.test(a.type || ''));
+  }
   function render() {
+    if (typingNow() && Date.now() - lastUserAct > 500) { renderWanted = true; return; }
+    renderWanted = false;
+    renderNow();
+  }
+  document.addEventListener('focusout', function () {
+    if (renderWanted) setTimeout(function () { if (renderWanted && !typingNow()) { renderWanted = false; renderNow(); } }, 50);
+  }, true);
+  function renderNow() {
     var red = data.customers.filter(function (c) { return c.todo; }).length;
     var done = data.customers.filter(function (c) { return c.contactedToday && c.stageId !== 'ended' && c.stageId !== 'won'; }).length;
     renderTodayTasks();
@@ -1675,7 +1694,7 @@
     call('planCrmViewing', [name, v], '内見の予定を入れました（前日と翌日にやることが出ます）');
   }
 
-  function search() { render(); }
+  function search() { renderNow(); }
   function toggleMenu() {
     var m = document.getElementById('menu');
     m.style.display = (m.style.display === 'none') ? 'flex' : 'none';
