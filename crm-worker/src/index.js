@@ -151,6 +151,17 @@ export default {
       return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
     }
 
+    // 写真を回すときに、よそのサイトの写真をこの画面から読めるように中継する（そのままだとブラウザが読ませてくれない）。
+    // 画像だけ通す。中身はそのまま流す（CPUを使わない）
+    if (path === '/api/img') {
+      const u = url.searchParams.get('u') || '';
+      if (!/^https?:\/\//.test(u)) return json({ ok: false, error: 'bad url' }, 400);
+      const r = await fetch(u, { headers: { 'user-agent': 'Mozilla/5.0' } });
+      const ct = r.headers.get('content-type') || '';
+      if (!r.ok || !/^image\//.test(ct)) return json({ ok: false, error: 'not image ' + r.status }, 502);
+      return new Response(r.body, { headers: { 'content-type': ct, 'cache-control': 'no-store' } });
+    }
+
     // 変わったかどうかだけ（1分ごとに確かめる）
     if (path === '/api/ver') {
       const { results } = await env.DB.prepare("SELECT k, v FROM config WHERE k = 'ver' OR k LIKE 'why:%'").all();
