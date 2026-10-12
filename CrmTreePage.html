@@ -1530,13 +1530,23 @@
     if (!v.trim()) { toast('名前を入れてください'); return; }
     call('nameCrmLineOnly', [pseudo, uid, v.trim()], '登録しました');
   }
-  // 今すぐ検索: GASに指示を置き、同じPCの拡張にもすぐ知らせる（拡張が無ければ1分以内のポーリングで拾う）
+  // 今すぐ検索: このPCのChrome拡張に直接「この人を検索して」と伝えて、その場で始める。
+  //   拡張がいない（スマホなど）・ほかの検索中のときだけ、GASに指示を置いて拡張に拾ってもらう
+  var searchAck = null;
+  window.addEventListener('message', function (ev) { if (ev.data && ev.data.type === 'SEARCH_NOW_ACK' && searchAck) searchAck(ev.data); });
   function searchNow(name) {
-    toast('検索を頼んでいます…');
-    Q().withSuccessHandler(function (d) {
-      applyResult(d); render(); toast(d.savedMessage || '検索を頼みました');
-      try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED' }, '*'); if (window.top !== window) window.top.postMessage({ type: 'SEARCH_NOW_REQUESTED' }, '*'); } catch (e) {}
-    }).withFailureHandler(function (e) { toast('検索を頼めませんでした: ' + e.message); }).setCrmSearchNow(name);
+    var done = false;
+    var viaGas = function (why) {
+      Q().withSuccessHandler(function (d) { applyResult(d); render(); toast((why ? why + '。' : '') + (d.savedMessage || '検索を頼みました')); })
+        .withFailureHandler(function (e) { toast('検索を頼めませんでした: ' + e.message); }).setCrmSearchNow(name);
+    };
+    searchAck = function (a) {
+      if (done) return; done = true; searchAck = null;
+      if (a.started) toast(name + 'さんの検索を始めました（結果は新着とDiscordに入ります）');
+      else viaGas('いまほかの検索が動いているので、終わったら始めます');
+    };
+    try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: [name] }, '*'); } catch (e) {}
+    setTimeout(function () { if (!done) { done = true; searchAck = null; viaGas('このPCの拡張が見つからないので、PCの拡張に頼みます'); } }, 1500);
   }
   function lineOnlyEnd(name, uid, ended) {
     call('setCrmLineOnlyEnded', [name, uid, ended], ended ? '終了にしました' : '戻しました', function (c) { c.stageId = ended ? 'ended' : 'line'; c.todo = false; });

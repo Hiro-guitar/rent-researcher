@@ -2903,6 +2903,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // CRMの「🔍 今すぐ検索」: GASに置かれた指示をすぐ取りに行く（いつもは1分ごと）
+  // CRMの「🔍 今すぐ検索」（同じPC）: その人だけをすぐ検索する。ほかの検索中なら started:false（CRMがGASに指示を置く）
+  if (msg.type === 'SEARCH_NOW_KEYS') {
+    getStorageData(['isSearching', 'suumoPatrolRunning']).then(({ isSearching, suumoPatrolRunning }) => {
+      if (isSearching || suumoPatrolRunning) { sendResponse({ started: false }); return; }
+      setStorageData({ debugLog: '[CRM] 今すぐ検索: ' + msg.keys.join('、') });
+      runSearchCycle(msg.keys);
+      sendResponse({ started: true });
+    });
+    return true;
+  }
   if (msg.type === 'SEARCH_POLL_NOW') {
     pollMobileSearchRequest();
     sendResponse({ ok: true });

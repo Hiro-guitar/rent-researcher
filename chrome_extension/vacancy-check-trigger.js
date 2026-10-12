@@ -34,7 +34,12 @@
         var t = Date.now();
         if (t - _lastSearchAt < 5000) return;
         _lastSearchAt = t;
-        chrome.runtime.sendMessage({ type: 'SEARCH_POLL_NOW' }, function () { void chrome.runtime.lastError; });
+        var keys = Array.isArray(d.keys) ? d.keys.filter(function (k) { return typeof k === 'string' && k; }).slice(0, 20) : [];
+        chrome.runtime.sendMessage(keys.length ? { type: 'SEARCH_NOW_KEYS', keys: keys } : { type: 'SEARCH_POLL_NOW' }, function (res) {
+          void chrome.runtime.lastError;
+          // 始めたか（ほかの検索中で始められなかったか）をCRMに返す
+          try { window.postMessage({ type: 'SEARCH_NOW_ACK', started: !!(res && res.started) }, '*'); } catch (e) {}
+        });
         return;
       }
       if (!d || d.type !== 'VACANCY_CHECK_REQUESTED') return;
