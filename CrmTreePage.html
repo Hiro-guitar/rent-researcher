@@ -1835,8 +1835,8 @@
     h += '<div class="sec">送る写真（' + ed.sel.length + '枚・左から順に出ます。ドラッグでも並び替えできます）</div><div class="eimgs">'
       + ed.sel.map(function (u, i) {
         return '<div class="eimg" draggable="true" ondragstart="edDrag=' + i + '" ondragend="edDrag=-1" ondragover="event.preventDefault()" ondrop="edDrop(' + i + ',event)">'
-          + '<img src="' + esc(u) + '" loading="lazy" onclick="lbOpen(ed.sel,' + i + ')" style="cursor:zoom-in"><span class="no">' + (i + 1) + (d.cats[u] ? ' ' + esc(d.cats[u]) : '') + '</span>'
-          + '<div class="eb"><button onclick="edMove(' + i + ',-1)">◀</button><button title="右に90度回す" onclick="edRotate(' + i + ')">⟳</button><button onclick="edDel(' + i + ')">✕</button><button onclick="edMove(' + i + ',1)">▶</button></div></div>';
+          + '<img src="' + esc(u) + '" loading="lazy" data-ei="' + i + '" onclick="lbOpen(ed.sel,' + i + ')" style="cursor:zoom-in;' + edRotCss(u) + '"><span class="no">' + (i + 1) + (d.cats[u] ? ' ' + esc(d.cats[u]) : '') + '</span>'
+          + '<div class="eb"><button onclick="edMove(' + i + ',-1)">◀</button><button title="左に回す" onclick="edRotate(' + i + ',-1)">⟲</button><button title="右に回す" onclick="edRotate(' + i + ',1)">⟳</button><button onclick="edDel(' + i + ')">✕</button><button onclick="edMove(' + i + ',1)">▶</button></div></div>';
       }).join('') + '</div>';
     var unused = d.all.filter(function (u) { return ed.sel.indexOf(u) < 0; });
     h += '<div class="sec">使わない写真（押すと最後に足します）</div><div class="eimgs">'
@@ -1912,45 +1912,48 @@
   function edMove(i, dir) { var j = i + dir; if (j < 0 || j >= ed.sel.length) return; var t = ed.sel[i]; ed.sel[i] = ed.sel[j]; ed.sel[j] = t; drawEdit(); }
   function edDel(i) { ed.sel.splice(i, 1); drawEdit(); }
   function edAdd(u) { ed.sel.push(u); drawEdit(); }
-  // 写真を右に90度回す。回したものを新しい写真として上げて、同じ位置に置き換える
+  // 写真を回す。押すたびにその場で回して見せるだけ（何回でもすぐ）。本当に回した写真を作って上げるのは「保存する」のとき
   // （よそのサイトの写真は Cloudflare 版の中継 /api/img を通して読む。GAS版で読めないときは知らせる）
-  function edRotate(i) {
-    var cur = ed, u = cur && cur.sel[i];
+  function edRotCss(u) {
+    var d = (ed && ed.rot && ed.rot[u]) || 0;
+    return d ? 'transform:rotate(' + d + 'deg)' + (d % 180 ? ' scale(0.75)' : '') + ';transition:transform .15s' : 'transition:transform .15s';
+  }
+  function edRotate(i, dir) {
+    var u = ed && ed.sel[i];
     if (!u) return;
-    toast('写真を回しています…');
+    ed.rot = ed.rot || {};
+    ed.rot[u] = (((ed.rot[u] || 0) + dir * 90) % 360 + 360) % 360;
+    var im = document.querySelector('#slideBody img[data-ei="' + i + '"]');
+    if (im) im.style.cssText = 'cursor:zoom-in;' + edRotCss(u);
+  }
+  function edRotateUpload(u, deg) {
     var loadImg = function (src) {
-      return new Promise(function (res, rej) { var im = new Image(); im.crossOrigin = 'anonymous'; im.onload = function () { res(im); }; im.onerror = rej; im.src = src; });
+      return new Promise(function (res, rej) { var im = new Image(); im.crossOrigin = 'anonymous'; im.onload = function () { res(im); }; im.onerror = function () { rej(new Error('写真を読めません')); }; im.src = src; });
     };
     var viaProxy = function () {
       return fetch('/api/img?u=' + encodeURIComponent(u), { cache: 'no-store' }).then(function (r) {
         if (!r.ok) throw new Error('中継で読めません'); return r.blob();
       }).then(function (b) { return loadImg(URL.createObjectURL(b)); });
     };
-    (/^(blob|data):/.test(u) ? loadImg(u) : viaProxy().catch(function () { return loadImg(u); })).then(function (im) {
-      var cv = document.createElement('canvas');
-      cv.width = im.naturalHeight; cv.height = im.naturalWidth;
+    return (/^(blob|data):/.test(u) ? loadImg(u) : viaProxy().catch(function () { return loadImg(u); })).then(function (im) {
+      var cv = document.createElement('canvas'), side = deg % 180 !== 0;
+      cv.width = side ? im.naturalHeight : im.naturalWidth; cv.height = side ? im.naturalWidth : im.naturalHeight;
       var g = cv.getContext('2d');
-      g.translate(cv.width, 0); g.rotate(Math.PI / 2); g.drawImage(im, 0, 0);
+      g.translate(cv.width / 2, cv.height / 2); g.rotate(deg * Math.PI / 180); g.drawImage(im, -im.naturalWidth / 2, -im.naturalHeight / 2);
       return new Promise(function (res) { cv.toBlob(res, 'image/jpeg', 0.92); });
     }).then(function (blob) {
       if (!blob) throw new Error('回せませんでした');
-      var rd = new FileReader();
-      rd.onload = function () {
-        google.script.run
-          .withSuccessHandler(function (r) {
-            if (!(r && r.success && r.url)) { toast('回した写真を上げられませんでした'); return; }
-            var k = cur.sel.indexOf(u); if (k < 0) k = i;
-            cur.sel[k] = r.url;
-            var a = cur.d.all.indexOf(u); if (a >= 0) cur.d.all[a] = r.url; else cur.d.all.push(r.url);
-            if (cur.d.cats && cur.d.cats[u]) cur.d.cats[r.url] = cur.d.cats[u];
-            if (ed === cur) drawEdit();
-            toast('回しました（保存すると送る写真に反映されます）');
-          })
-          .withFailureHandler(function (e) { toast('回した写真を上げられませんでした: ' + e.message); })
-          .uploadPropertyImage(String(rd.result).split(',')[1], 'rotated.jpg', 'image/jpeg');
-      };
-      rd.readAsDataURL(blob);
-    }).catch(function (e) { toast('この写真は回せませんでした（Cloudflare版のCRMでお試しください）: ' + (e && e.message || e)); });
+      return new Promise(function (res, rej) {
+        var rd = new FileReader();
+        rd.onload = function () {
+          google.script.run
+            .withSuccessHandler(function (r) { if (r && r.success && r.url) res(r.url); else rej(new Error('回した写真を上げられませんでした')); })
+            .withFailureHandler(rej)
+            .uploadPropertyImage(String(rd.result).split(',')[1], 'rotated.jpg', 'image/jpeg');
+        };
+        rd.readAsDataURL(blob);
+      });
+    });
   }
   function edUpload(files) {
     var cur = ed, list = Array.prototype.slice.call(files || []), left = list.length;
@@ -1977,6 +1980,26 @@
     if (!ed || !ed.d) return;
     if (!ed.sel.length) { toast('写真を1枚以上残してください'); return; }
     var cur = ed;
+    // 回した写真があれば、先に回した写真を作って上げ、同じ位置に入れ替えてから保存する
+    var jobs = [];
+    cur.sel.forEach(function (u, i) {
+      var deg = cur.rot && cur.rot[u];
+      if (!deg) return;
+      jobs.push(edRotateUpload(u, deg).then(function (nu) {
+        cur.sel[i] = nu;
+        var a = cur.d.all.indexOf(u); if (a >= 0) cur.d.all[a] = nu; else cur.d.all.push(nu);
+        if (cur.d.cats && cur.d.cats[u]) cur.d.cats[nu] = cur.d.cats[u];
+      }));
+    });
+    if (jobs.length) {
+      toast('回した写真を作っています…（' + jobs.length + '枚）');
+      Promise.all(jobs).then(function () { cur.rot = {}; saveEditNow(cur); },
+        function (e) { toast('写真を回せませんでした（Cloudflare版のCRMでお試しください）: ' + (e && e.message || e)); });
+      return;
+    }
+    saveEditNow(cur);
+  }
+  function saveEditNow(cur) {
     // 先にカードへ反映して閉じる。保存は裏で（写真の置き直しで数秒かかることがある）
     var c = data.customers.filter(function (x) { return x.name === cur.name; })[0];
     var p = c && (c.pending || []).filter(function (x) { return x.roomId === cur.roomId; })[0];
@@ -1987,7 +2010,7 @@
     }
     cur.d.selected = cur.sel.slice(); cur.d.comment = cur.comment; cur.d.fields = cur.fields;
     savingCount++;
-    closeEdit();
+    if (ed === cur) closeEdit();
     render();
     toast('保存しています…');
     google.script.run
