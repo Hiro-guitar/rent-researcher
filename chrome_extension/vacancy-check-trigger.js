@@ -24,11 +24,19 @@
   console.log('[空室確認トリガー] content script loaded, url=' + location.href);
 
   // 連打・iframe二重読み込みでの多重送信を抑える
-  var _lastSentAt = 0;
+  var _lastSentAt = 0, _lastSearchAt = 0;
 
   window.addEventListener('message', function (ev) {
     try {
       var d = ev && ev.data;
+      // CRMの「🔍 今すぐ検索」: 指示はGASに置いてあるので、拡張にすぐ取りに行かせる（2026-10-12）
+      if (d && d.type === 'SEARCH_NOW_REQUESTED') {
+        var t = Date.now();
+        if (t - _lastSearchAt < 5000) return;
+        _lastSearchAt = t;
+        chrome.runtime.sendMessage({ type: 'SEARCH_POLL_NOW' }, function () { void chrome.runtime.lastError; });
+        return;
+      }
       if (!d || d.type !== 'VACANCY_CHECK_REQUESTED') return;
 
       // 5秒以内の再送は無視（同じ押下が複数フレームから届くことがある）

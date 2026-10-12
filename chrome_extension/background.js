@@ -2902,6 +2902,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  // CRMの「🔍 今すぐ検索」: GASに置かれた指示をすぐ取りに行く（いつもは1分ごと）
+  if (msg.type === 'SEARCH_POLL_NOW') {
+    pollMobileSearchRequest();
+    sendResponse({ ok: true });
+    return;
+  }
   if (msg.type === 'SEARCH_NOW') {
     runSearchCycle();
     sendResponse({ ok: true });

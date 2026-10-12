@@ -199,7 +199,8 @@
       "matches": [
         "https://script.google.com/macros/*",
         "https://script.googleusercontent.com/*",
-        "https://*.googleusercontent.com/*"
+        "https://*.googleusercontent.com/*",
+        "https://ehomaki-crm.delicate-bush-f5a9.workers.dev/*"
       ],
       "js": [
         "vacancy-check-trigger.js"

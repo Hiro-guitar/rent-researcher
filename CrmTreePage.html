@@ -403,6 +403,7 @@
             + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>' : '')
           + (c.stageId !== 'call' ? '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>' : '')
           + '<button class="btn" title="今日だけ黒くする（明日また赤くなる）" onclick="next(' + n + ',1)">⚫ 今日はいい</button>'
+          + (c.hasCriteria ? '<button class="btn" title="登録している条件で、今すぐ4サイトを検索します（PCのChrome拡張が動かします）" onclick="searchNow(' + n + ')">🔍 今すぐ検索</button>' : '')
           + '</div><div class="acts small">';
         if (c.stageId === 'ended' || c.stageId === 'won') {
           h += '<button class="btn" onclick="stage(' + n + ',\'\',\'\')">↩ 追客中に戻す</button>';
@@ -1528,6 +1529,14 @@
     var v = (document.getElementById('newNm') || {}).value || '';
     if (!v.trim()) { toast('名前を入れてください'); return; }
     call('nameCrmLineOnly', [pseudo, uid, v.trim()], '登録しました');
+  }
+  // 今すぐ検索: GASに指示を置き、同じPCの拡張にもすぐ知らせる（拡張が無ければ1分以内のポーリングで拾う）
+  function searchNow(name) {
+    toast('検索を頼んでいます…');
+    Q().withSuccessHandler(function (d) {
+      applyResult(d); render(); toast(d.savedMessage || '検索を頼みました');
+      try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED' }, '*'); if (window.top !== window) window.top.postMessage({ type: 'SEARCH_NOW_REQUESTED' }, '*'); } catch (e) {}
+    }).withFailureHandler(function (e) { toast('検索を頼めませんでした: ' + e.message); }).setCrmSearchNow(name);
   }
   function lineOnlyEnd(name, uid, ended) {
     call('setCrmLineOnlyEnded', [name, uid, ended], ended ? '終了にしました' : '戻しました', function (c) { c.stageId = ended ? 'ended' : 'line'; c.todo = false; });
