@@ -1834,7 +1834,7 @@
     h += '<div class="sec">一言（カードに載ります）</div><textarea class="memo" style="min-height:70px" oninput="ed.comment=this.value">' + esc(ed.comment || '') + '</textarea>';
     h += '<div class="sec">送る写真（' + ed.sel.length + '枚・左から順に出ます。ドラッグでも並び替えできます）</div><div class="eimgs">'
       + ed.sel.map(function (u, i) {
-        return '<div class="eimg" draggable="true" ondragstart="edDrag=' + i + '" ondragend="edDrag=-1" ondragover="event.preventDefault()" ondrop="edDrop(' + i + ')">'
+        return '<div class="eimg" draggable="true" ondragstart="edDrag=' + i + '" ondragend="edDrag=-1" ondragover="event.preventDefault()" ondrop="edDrop(' + i + ',event)">'
           + '<img src="' + esc(u) + '" loading="lazy" onclick="lbOpen(ed.sel,' + i + ')" style="cursor:zoom-in"><span class="no">' + (i + 1) + (d.cats[u] ? ' ' + esc(d.cats[u]) : '') + '</span>'
           + '<div class="eb"><button onclick="edMove(' + i + ',-1)">◀</button><button onclick="edDel(' + i + ')">✕</button><button onclick="edMove(' + i + ',1)">▶</button></div></div>';
       }).join('') + '</div>';
@@ -1886,6 +1886,8 @@
       sl.classList.remove('drop');
       if (!ed || !ed.d || edDrag >= 0) return;
       ev.preventDefault();
+      // この画面の中の写真を動かしただけ（ほかの写真の上以外で離した）なら足さない
+      if (ed.sel.indexOf((ev.dataTransfer.getData('text/uri-list') || '').split('\n')[0].trim()) >= 0) return;
       var dt = ev.dataTransfer, files = Array.prototype.filter.call(dt.files || [], function (f) { return /^image\//.test(f.type); });
       if (files.length) { edUpload(files); return; }
       var u = (dt.getData('text/uri-list') || dt.getData('text/plain') || '').split('\n')[0].trim();
@@ -1901,7 +1903,12 @@
     });
   })();
   var edDrag = -1;
-  function edDrop(i) { if (edDrag < 0 || edDrag === i) return; var u = ed.sel.splice(edDrag, 1)[0]; ed.sel.splice(i, 0, u); edDrag = -1; drawEdit(); }
+  // ⚠️ 並び替えの drop は、外側（写真を足す drop）まで届かせないこと。届くと、動かした写真が末尾にもう1枚足されていた（2026-10-12）
+  function edDrop(i, ev) {
+    if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+    if (edDrag < 0 || edDrag === i) { edDrag = -1; return; }
+    var u = ed.sel.splice(edDrag, 1)[0]; ed.sel.splice(i, 0, u); edDrag = -1; drawEdit();
+  }
   function edMove(i, dir) { var j = i + dir; if (j < 0 || j >= ed.sel.length) return; var t = ed.sel[i]; ed.sel[i] = ed.sel[j]; ed.sel[j] = t; drawEdit(); }
   function edDel(i) { ed.sel.splice(i, 1); drawEdit(); }
   function edAdd(u) { ed.sel.push(u); drawEdit(); }
