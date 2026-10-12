@@ -128,6 +128,11 @@
   .prop .pl label { display: inline-flex; gap: 3px; align-items: center; }
   .prop .cmt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ptabs { display: flex; gap: 4px; position: sticky; top: -12px; background: var(--surface); padding: 4px 0 6px; z-index: 2; border-bottom: 1px solid var(--hair); }
+  .sgrp { font-size: 11px; color: var(--muted); margin: 12px 0 2px; letter-spacing: .05em; }
+  .shd { font-size: 13px; padding: 5px 2px; border-bottom: 1px solid var(--hair); cursor: pointer; }
+  .shd b { font-weight: 700; }
+  .shd.zero { color: var(--muted); cursor: default; }
+  .autotag { font-size: 10px; padding: 0 5px; margin-right: 4px; border-radius: 999px; border: 1px solid var(--hair); color: var(--muted); }
   .ptab { flex: 1; padding: 4px 1px; min-width: 0; display: flex; flex-direction: column; align-items: center; line-height: 1.25; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
   .ptab span { font-size: 11px; white-space: nowrap; }
   .ptab b { font-weight: 700; font-size: 14px; }
@@ -1026,6 +1031,7 @@
   function toggleMenu2(rid) { var x = extras[selName]; x.menuOf = (x.menuOf === rid) ? '' : rid; render(); }
   function toggleWarn(rid) { var x = extras[selName]; x.warnOf = (x.warnOf === rid) ? '' : rid; render(); }
   function setTab(t) { extras[selName].tab = t; render(); }
+  function secToggle(k, on) { var x = extras[selName]; x.secOpen = x.secOpen || {}; x.secOpen[k] = on; render(); }
   function propRow(p, kind, c, x, watching) {
     var rid = esc(JSON.stringify(p.roomId));
     var canPick = kind !== 'watch' && (c.lineUid || kind === 'new' || kind === 'cand');   // LINEが無くても新着・候補は選べる（まとめて仕分けるため）
@@ -1117,52 +1123,68 @@
     // 新着＝まだ仕分けていない物件。☆候補＝仕分けで残した物件（送るか決める）
     var newList = (c.pending || []).filter(function (p) { return !p.cand; });
     var candList = (c.pending || []).filter(function (p) { return p.cand; });
-    // 👀反応: 送った物件のうち、お客様が見た・押したもの（新しい順）
-    var reactList = sent ? sent.filter(function (p) { return p.views || p.act; }).sort(function (a, b) { return (b.reactMs || 0) - (a.reactMs || 0); }) : null;
-    // 検討中: 段階かメモの付いた物件（キャンセル待ちは「待ち」のまま）。段階の順に
-    var psAll = c.pstat || {}, consList = null;
-    if (sent) {
-      var seenC = {}; consList = [];
-      sent.concat(c.pending || []).forEach(function (p) { if (psAll[p.roomId] && !seenC[p.roomId]) { seenC[p.roomId] = true; consList.push(p); } });
-      consList.sort(function (a, b) { var ia = PSTEPS.indexOf(psAll[a.roomId].s), ib = PSTEPS.indexOf(psAll[b.roomId].s); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
-    }
-    var T = [['new', '新着', newList.length], ['cand', '候補', candList.length], ['sent', '送った', cnt(sent)], ['react', '反応', cnt(reactList)], ['cons', '検討中', cnt(consList)], ['skip', '見送った', cnt(skipped)], ['watch', '待ち', (c.watch || []).length]];
-    var h = '<div class="ptabs">' + T.map(function (t) {
-      // 名前（上・小さく）と件数（下・大きく）の2段。6つ並べても切れないように
-      return '<button class="ptab' + (tab === t[0] ? ' on' : '') + '" onclick="setTab(\'' + t[0] + '\')"><span>' + t[1] + '</span><b>' + t[2] + '</b></button>';
-    }).join('') + '</div><div class="plist">';
-    if (tab === 'new' || tab === 'cand') {
-      var L2 = tab === 'new' ? newList : candList, word = tab === 'new' ? '新着' : '候補';
-      if (L2.length) {
-        var allOn = L2.every(function (p) { return x.pick[p.roomId]; });
-        h += '<div class="pl" style="margin:4px 0"><a href="#" onclick="pickAllIn(\'' + tab + '\',' + (allOn ? 'false' : 'true') + ');return false">' + (allOn ? word + 'を全部外す' : word + 'を全部選ぶ') + '</a>'
-          + (tab === 'new' ? ' <span class="meta">⚠の付いた物件は後ろにまとめています</span>' : '') + '</div>';
-      }
-      h += L2.length ? L2.map(function (p) { return propRow(p, tab, c, x, watching); }).join('')
-        : '<div class="meta">' + (tab === 'new' ? (candList.length ? '仕分けが終わりました。☆候補から送るものを選んでください' : '今送れる新着はありません') : 'まだ候補はありません。新着で「☆ 候補へ」を押すとここに入ります') + '</div>';
-    } else if (tab === 'cons') {
-      if (!consList) h += '<div class="meta">読み込み中…</div>';
-      else if (!consList.length) h += '<div class="meta">検討中の物件はありません。送った物件の「検討状況…」で段階を付けるとここに並びます</div>';
-      else h += consList.map(function (p) { return propRow(p, 'cons', c, x, watching); }).join('');
-    } else if (tab === 'react') {
-      if (!reactList) h += '<div class="meta">読み込み中…</div>';
-      else if (!reactList.length) h += '<div class="meta">送った物件に、まだ反応はありません</div>';
-      else h += reactList.map(function (p) { return propRow(p, 'react', c, x, watching); }).join('');
-    } else if (tab === 'sent' || tab === 'skip') {
-      var list = tab === 'sent' ? sent : skipped;
-      if (!list) h += '<div class="meta">読み込み中…</div>';
-      else if (!list.length) h += '<div class="meta">' + (tab === 'sent' ? 'まだ送った物件はありません' : '見送った物件はありません') + '</div>';
-      else {
-        if (tab === 'sent' && c.family && c.family.length) {
+    // ── 物件の段（2026-10-12）: タブをやめて、お客様の樹形図と同じように「今どこまで進んだか」で段に分ける ──
+    // 段は保存していない。送った日・お客様の反応・検討状況・キャンセル待ち・募集終了から、そのつど決める
+    var now = Date.now(), H = 3600000;
+    var psAll = c.pstat || {};
+    var stageOfSent = function (p) {
+      var ps = psAll[p.roomId] || {};
+      if (ps.s === '申込中' || ps.s === '内見済み・検討中' || ps.s === '内見予定' || ps.s === '見送り') return ps.s;
+      if (watching[p.roomId]) return 'キャンセル待ち';
+      if (p.closed) return '募集終了';
+      if (ps.s === '内見希望' || p.act === 'viewing' || p.act === 'hold') return '内見希望';   // 物件のページから希望をもらったら自動で
+      if (p.act === 'not_interested') return '見送り';
+      if (p.views || p.act) return (p.reactMs && now - p.reactMs > 24 * H) ? '見送り' : '反応あり';   // 反応から24時間で見送り
+      return (p.ms && now - p.ms > 48 * H) ? '見送り' : '送った';                                       // 送ってから48時間で見送り
+    };
+    var SECS = [
+      { g: '送る前', k: '新着', open: true }, { k: '候補', open: true },
+      { g: '送ったあと', k: '送った' }, { k: '反応あり' }, { k: '内見希望', open: true }, { k: '内見予定', open: true },
+      { k: '内見済み・検討中', open: true }, { k: '申込中', open: true }, { k: 'キャンセル待ち' },
+      { g: 'よけた', k: '見送り' }, { k: '見送った' }, { k: '募集終了' }
+    ];
+    var bySec = {}; SECS.forEach(function (sc) { bySec[sc.k] = []; });
+    newList.forEach(function (p) { bySec['新着'].push(p); });
+    candList.forEach(function (p) { bySec['候補'].push(p); });
+    if (sent) sent.forEach(function (p) { bySec[stageOfSent(p)].push(p); });
+    if (skipped) skipped.forEach(function (p) { bySec['見送った'].push(p); });
+    // 送る前の物件に付けた段（内見希望など）は、その段にも出す
+    var autoSkip = function (p) { var ps = psAll[p.roomId] || {}; return ps.s !== '見送り' && p.act !== 'not_interested'; };
+    x.secOpen = x.secOpen || {};
+    var isOpen = function (sc) { return (sc.k in x.secOpen) ? x.secOpen[sc.k] : !!sc.open; };
+    var h = '<div class="plist">';
+    SECS.forEach(function (sc) {
+      var list = bySec[sc.k], loading = (sc.k !== '新着' && sc.k !== '候補' && sc.k !== 'キャンセル待ち') && !sent;
+      var n = sc.k === 'キャンセル待ち' ? (c.watch || []).length : list.length;
+      if (sc.g) h += '<div class="sgrp">' + sc.g + '</div>';
+      var op = isOpen(sc) && (n || loading);
+      h += '<div class="shd' + (n ? '' : ' zero') + '" onclick="secToggle(' + esc(JSON.stringify(sc.k)) + ',' + (op ? 'false' : 'true') + ')">'
+        + (n ? (op ? '▾ ' : '▸ ') : '　') + esc(sc.k) + ' <b>' + (loading ? '…' : n) + '</b>'
+        + (sc.k === '見送り' ? ' <span class="meta">反応なし48時間・反応から24時間で自動</span>' : '') + '</div>';
+      if (!op) return;
+      if (loading) { h += '<div class="meta">読み込み中…</div>'; return; }
+      if (sc.k === '新着' || sc.k === '候補') {
+        var tabK = sc.k === '新着' ? 'new' : 'cand';
+        var allOn = list.every(function (p) { return x.pick[p.roomId]; });
+        h += '<div class="pl" style="margin:2px 0"><a href="#" onclick="pickAllIn(\'' + tabK + '\',' + (allOn ? 'false' : 'true') + ');return false">' + (allOn ? sc.k + 'を全部外す' : sc.k + 'を全部選ぶ') + '</a>'
+          + (tabK === 'new' ? ' <span class="meta">⚠の付いた物件は後ろにまとめています</span>' : '') + '</div>';
+        h += list.map(function (p) { return propRow(p, tabK, c, x, watching); }).join('');
+      } else if (sc.k === 'キャンセル待ち') {
+        h += watchHtml(c);
+      } else if (sc.k === '見送った') {
+        h += list.map(function (p) { return propRow(p, 'skip', c, x, watching); }).join('');
+      } else {
+        if (sc.k === '送った' && c.family && c.family.length) {
           var nf = Object.keys(x.famPick).filter(function (k) { return x.famPick[k]; }).length;
-          h += '<div class="acts"><button class="btn save line" onclick="sendToFamily()">「家族にも」の物件を家族に送る' + (nf ? '（' + nf + '件）' : '') + '</button></div>'
-            + '<div class="meta">家族（' + c.family.map(function (f) { return esc(f.disp); }).join('・') + '）にだけ送ります。コメントもそのまま。</div>';
+          h += '<div class="acts"><button class="btn save line" onclick="sendToFamily()">「家族にも」の物件を家族に送る' + (nf ? '（' + nf + '件）' : '') + '</button></div>';
         }
-        h += list.map(function (p) { return propRow(p, tab, c, x, watching); }).join('');
+        h += list.map(function (p) {
+          var r = propRow(p, 'sent', c, x, watching);
+          if (sc.k === '見送り' && autoSkip(p)) r = r.replace('<div class="pt">', '<div class="pt"><span class="autotag">自動</span>');
+          return r;
+        }).join('');
       }
-    } else {
-      h += watchHtml(c) || '<div class="meta">キャンセル待ちの物件はありません</div>';
-    }
+    });
     h += '</div>';
     // 下の送る欄（タブを切り替えても選んだ物件は残る）
     var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k]; });
