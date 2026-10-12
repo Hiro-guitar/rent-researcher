@@ -1083,7 +1083,8 @@
       + (canPick ? '<label class="pk"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="pickProp(' + rid + ',this.checked)"></label>' : '')
       + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy" onclick="lbOpen(' + esc(JSON.stringify(p.images && p.images.length ? p.images : [p.image])) + ',0)">' : '<div class="noimg"></div>')
       // 物件名と部屋番号を押すと元のページ（「元のページ」のボタンはやめた）
-      + '<div class="pi"><div class="pt">' + (p.url ? '<a class="ptlink" target="_blank" href="' + esc(p.url) + '">' : '') + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + (p.url ? '</a>' : '') + tags + '</div>'
+      // ⚠️ 物件名が無い物件（REINSの一部など）は押す文字が無くなるので、「（物件名なし）」を出してそこを押せるようにする
+      + '<div class="pi"><div class="pt">' + (p.url ? '<a class="ptlink" target="_blank" href="' + esc(p.url) + '">' : '') + (p.building ? esc(p.building) : '（物件名なし）') + (p.room ? ' ' + esc(p.room) : '') + (p.url ? '</a>' : '') + tags + '</div>'
       + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area, p.station].filter(Boolean).join('・'))
       + (sub.length ? ' <span class="sub">' + sub.join('・') + '</span>' : '') + '</div>'
       + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
