@@ -3,6 +3,7 @@
 <head>
 <base target="_top">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
   :root {
     --bg: #f4f5f3; --surface: #fff; --ink: #1c211f; --muted: #6d7772; --hair: #dde2df;
@@ -71,6 +72,31 @@
   @media (max-width: 1280px) { .layout { grid-template-columns: minmax(0, 1fr) 360px; } .layout .props { grid-column: 2; } }
   @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .layout .props { grid-column: auto; } }
   .layout .panel { max-height: calc(100vh - 16px); overflow-y: auto; }
+  /* スマホ: 一覧・お客様・物件を1つずつ出す。上の帯で切り替える */
+  .mbar { display: none; }
+  @media (max-width: 860px) {
+    .wrap { padding: 8px 12px 60px; }
+    header { flex-wrap: wrap; }
+    header h1 { font-size: 18px; }
+    body.m-cust .tree, body.m-props .tree, body.m-cust #props, body.m-props #panel, body.m-list #panel, body.m-list #props { display: none; }
+    body.m-cust #q, body.m-props #q, body.m-cust .today, body.m-props .today, body.m-cust .ttasks, body.m-props .ttasks, body.m-cust header, body.m-props header { display: none; }
+    body.m-cust .mbar, body.m-props .mbar { display: flex; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; align-items: center; gap: 8px;
+      background: var(--bg); padding: 8px 0; margin-bottom: 6px; border-bottom: 1px solid var(--hair); }
+    .mbar b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+    .mtabs { display: flex; border: 1px solid var(--hair); border-radius: 8px; overflow: hidden; }
+    .mtabs button { border: 0; background: var(--surface); color: var(--ink); padding: 8px 14px; font: inherit; font-size: 14px; }
+    .mtabs button.on { background: var(--green); color: #fff; font-weight: 700; }
+    .layout .panel { position: static; max-height: none; padding: 10px 12px; }
+    /* 指で押しやすく。入力欄は16px以上（iPhoneで勝手に拡大しないように） */
+    .btn { padding: 9px 13px; font-size: 14px; }
+    .chip { padding: 6px 12px; font-size: 14px; }
+    .pl a { display: inline-block; padding: 5px 4px; }
+    input, select, textarea, .inp, .memo { font-size: 16px !important; }
+    .shd { padding: 9px 2px; font-size: 14px; }
+    .slide .sh { padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
+    .eimg { width: calc(50% - 4px); }
+    .eimg .eb button { padding: 8px 0; font-size: 14px; }
+  }
   @media (max-width: 860px) { .layout .panel { max-height: none; position: static; } }
   .panel { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; padding: 12px 14px; margin-top: 0;
     position: sticky; top: 8px; }
@@ -279,6 +305,7 @@
   <input type="search" id="q" class="search" placeholder="名前で探す" oninput="search()">
   <div class="today" id="today"></div>
   <div class="ttasks" id="todayTasks"></div>
+  <div class="mbar" id="mbar"></div>
   <div class="layout">
     <div class="tree" id="tree"></div>
     <aside class="panel" id="panel"></aside>
@@ -529,6 +556,7 @@
         + extraHtml(c)
       : '<div class="meta">名前を押すと、ここにその人が出ます。もう一度押すと閉じます。</div>';
     document.getElementById('foot').textContent = '';
+    applyMView();
     // 送る物件は別の列に出す
     var props = document.getElementById('props');
     props.innerHTML = c ? '<div class="where">' + esc(c.name) + ' さんに送る</div>' + sendHtml(c)
@@ -644,15 +672,31 @@
     if (pickMode) { if (searchPick[name]) delete searchPick[name]; else searchPick[name] = true; render(); return; }
     addMode = false;
     // 同じ名前をもう一度押したら右を閉じる
-    if (selName === name) { selName = ''; askNext = askEnd = askViewing = ''; render(); return; }
+    if (selName === name) { selName = ''; mView = 'list'; askNext = askEnd = askViewing = ''; render(); return; }
     selName = name;
     askNext = askEnd = askViewing = askTalk = '';
     loadExtra(name);
     render();
     prefetchFor(name);
     if (!listCache[name] && !prefetching) loadLists(name);   // 取ってあれば取り直さない
-    if (window.innerWidth < 860) document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setMView('cust');
   }
+  // ── スマホ（幅が狭いとき）: 一覧 → お客様 → 物件 を1画面ずつ切り替える（2026-10-13）──
+  var mView = 'list';
+  function isPhone() { return window.innerWidth <= 860; }
+  function setMView(v) { mView = v; applyMView(); if (isPhone()) window.scrollTo(0, 0); }
+  function applyMView() {
+    var v = selName || addMode ? mView : 'list';
+    ['m-list', 'm-cust', 'm-props'].forEach(function (k) { document.body.classList.toggle(k, k === 'm-' + v); });
+    var bar = document.getElementById('mbar');
+    if (!bar) return;
+    if (v === 'list') { bar.innerHTML = ''; return; }
+    bar.innerHTML = '<button class="btn" onclick="mBack()">← 一覧</button><b>' + esc(addMode ? 'お客様を追加' : selName) + '</b>'
+      + (addMode ? '' : '<span class="mtabs"><button class="' + (v === 'cust' ? 'on' : '') + '" onclick="setMView(\'cust\')">お客様</button>'
+        + '<button class="' + (v === 'props' ? 'on' : '') + '" onclick="setMView(\'props\')">物件</button></span>');
+  }
+  function mBack() { selName = ''; addMode = false; askNext = askEnd = askViewing = askTalk = ''; mView = 'list'; render(); window.scrollTo(0, 0); }
+  window.addEventListener('resize', function () { applyMView(); });
 
   // ── 右側の追加情報（問い合わせた物件・条件を入れる・メモ）。画面を開いた時点で全員分を持っている ──
   var extras = {};   // 顧客名 → { memo, memoDraft, formUrl, formLoading }
@@ -1501,9 +1545,9 @@
   // ── お客様を追加（電話の反響・リピーター・その他） ──
   var addMode = false, addDraft = null;
   function openAdd() {
-    addMode = true; selName = '';
+    addMode = true; selName = ''; mView = 'cust';
     addDraft = addDraft || { name: '', phone: '', email: '', route: 'phone', property: '', talked: false, memo: '', reviveName: '' };
-    render();
+    render(); if (isPhone()) window.scrollTo(0, 0);
   }
   function addSet(k, v, rerender) { addDraft[k] = v; if (rerender) render(); else if (k === 'name' || k === 'phone') addMatches(); }
   function addMatches() {
