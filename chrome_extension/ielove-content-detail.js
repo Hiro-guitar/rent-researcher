@@ -213,10 +213,13 @@
   function extractAddressAndStation(result) {
     const bodyText = document.body.innerText || '';
 
-    // 住所: 東京都〜 を含む短い行
+    // 住所: 都道府県〜 で始まる短い行
+    // ⚠️ 以前は「東京都」しか見ておらず、神奈川・埼玉などの物件は住所が空になり、
+    //   送った記録（重複検知のキー）が作れなかった（2026-10-13 渡邊さんの横浜の物件 43件）
+    const PREF_RE = /^(東京都|神奈川県|埼玉県|千葉県|茨城県|栃木県|群馬県|山梨県|静岡県|北海道|大阪府|京都府|[一-龥]{2,3}県).{3,50}$/;
     for (const line of bodyText.split('\n')) {
       const t = line.trim();
-      if (/^東京都.{3,50}$/.test(t) && !t.includes('管理費')) {
+      if (PREF_RE.test(t) && !t.includes('管理費')) {
         result.address = t;
         break;
       }

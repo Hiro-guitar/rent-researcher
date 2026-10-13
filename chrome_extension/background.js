@@ -8645,7 +8645,9 @@ async function sendDiscordNotification(customerName, properties, customer) {
       if (!globalThis._suumoPatrolMode && globalThis.__addNotifiedDedupKey) {
         try { globalThis.__addNotifiedDedupKey(customerName, properties[i], properties[i].source); } catch (e) {}
       }
-      if (i < properties.length - 1) await sleep(1000);
+      // ⚠️ 1件ずつの間隔は 450ms（2026-10-13 1000ms から短縮。4サイト同時にしてから最後にまとめて送るので、90件で3分かかっていた）。
+      //   同時に送ると番号の順番が崩れるので、順番は守ったまま間を詰める。Discord の上限（1つの送り先に2秒で5回）より下。429 は discordPostWithRetry が待って送り直す
+      if (i < properties.length - 1) await sleep(450);
     }
 
     // ── この回に通知した物件だけを対象にした「まとめて送信」を最後に1つ出す ──
