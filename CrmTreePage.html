@@ -512,7 +512,7 @@
   ['click', 'change'].forEach(function (ev) { document.addEventListener(ev, function () { lastUserAct = Date.now(); }, true); });
   function typingNow() {
     var a = document.activeElement;
-    if (!a || a.id === 'q') return false;   // 名前の検索欄は描き直しても作り直されない
+    if (!a || a.id === 'q' || a.id === 'pq') return false;   // 検索欄・絞り込み欄は描き直しても作り直されない   // 名前の検索欄は描き直しても作り直されない
     return a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|date|time|file)$/i.test(a.type || ''));
   }
   function render() {
@@ -562,8 +562,20 @@
     applyMView();
     // 送る物件は別の列に出す
     var props = document.getElementById('props');
-    props.innerHTML = c ? '<div class="where">' + esc(c.name) + ' さんに送る</div>' + sendHtml(c)
-      : '<div class="meta">名前を押すと、その人に送る物件がここに並びます。</div>';
+    // ⚠️ 物件の絞り込み欄（#pq）は作り直さない。打っている途中で作り直すと、日本語の変換が途中（「アラ」）で切れた（2026-10-13）
+    if (c) {
+      if (props.getAttribute('data-cust') !== c.name || !document.getElementById('propsBody')) {
+        props.setAttribute('data-cust', c.name);
+        props.innerHTML = '<div class="where">' + esc(c.name) + ' さんに送る</div>'
+          + '<input class="inp pq" id="pq" placeholder="🔍 物件名・駅・間取りで絞る（例: 武蔵小杉、1LDK）" value="' + esc((extras[c.name] || {}).pq || '') + '"'
+          + ' oninput="if(!event.isComposing)pqSet(this.value)" oncompositionend="pqSet(this.value)" autocomplete="off">'
+          + '<div id="propsBody"></div>';
+      }
+      document.getElementById('propsBody').innerHTML = sendHtml(c);
+    } else {
+      props.removeAttribute('data-cust');
+      props.innerHTML = '<div class="meta">名前を押すと、その人に送る物件がここに並びます。</div>';
+    }
     var slot = document.getElementById('formSlot');
     if (slot) {
       var url = slot.getAttribute('data-url');
@@ -1158,9 +1170,9 @@
   function pqSet(v) {
     var x = extras[selName]; if (!x) return;
     x.pq = v;
-    renderNow();
     var el = document.getElementById('pq');
-    if (el && v) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} }
+    if (el && el.value !== v) el.value = v;   // 「絞るのをやめる」から来たとき
+    renderNow();
   }
   function secToggle(k, on) { var x = extras[selName]; x.secOpen = x.secOpen || {}; x.secOpen[k] = on; render(); }
   function propRow(p, kind, c, x, watching) {
@@ -1288,8 +1300,7 @@
     var autoSkip = function (p) { var ps = psAll[p.roomId] || {}; return ps.s !== '見送り' && p.act !== 'not_interested'; };
     x.secOpen = x.secOpen || {};
     var isOpen = function (sc) { return pq ? true : ((sc.k in x.secOpen) ? x.secOpen[sc.k] : !!sc.open); };
-    var h = '<input class="inp pq" id="pq" placeholder="🔍 物件名・駅・間取りで絞る（例: 武蔵小杉、1LDK）" value="' + esc(x.pq || '') + '"'
-      + ' oninput="if(!event.isComposing)pqSet(this.value)" oncompositionend="pqSet(this.value)" autocomplete="off">';
+    var h = '';
     if (pq) {
       var nHit = 0; SECS.forEach(function (sc) { nHit += sc.k === 'キャンセル待ち' ? watchShown.length : bySec[sc.k].length; });
       h += '<div class="meta">「' + esc(x.pq) + '」に当たった物件 ' + nHit + '件 <a href="#" onclick="pqSet(\'\');return false">絞るのをやめる</a></div>';
