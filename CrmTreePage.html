@@ -87,6 +87,9 @@
   .chip.todo .nm { color: var(--red); font-weight: 700; }
   .chip.done { opacity: .6; }
   .chip.sel { outline: 3px solid var(--green); outline-offset: 1px; opacity: 1; }
+  .chip.picked { outline: 3px solid var(--green); outline-offset: 1px; opacity: 1; background: var(--green-soft); }
+  .pickbar { margin: 0 0 8px; font-size: 13px; }
+  .pickbar.on { padding: 6px 8px; border: 1.5px solid var(--green); border-radius: 8px; }
   .chip .flag { font-size: 11px; color: #9a5b12; background: #fbf0df; padding: 0 6px; border-radius: 4px; }
   .stage .label.fold { cursor: pointer; }
   .more { font-size: 12px; color: var(--muted); background: none; border: 1px dashed var(--hair); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
@@ -102,6 +105,10 @@
   .pen:hover { opacity: 1; }
   .critbox { border: 1.5px solid var(--green); border-radius: 10px; padding: 10px 12px; margin: 16px 0 8px; }
   .critttl { font-size: 14px; font-weight: 700; color: var(--green); margin-bottom: 4px; }
+  .critbox.rec { border-style: dashed; }
+  .recrow { padding: 6px 0; border-bottom: 1px solid var(--hair); font-size: 13px; }
+  .recrow.off { opacity: .6; }
+  .recrow .pl a { margin-right: 10px; font-size: 12px; }
   .csum { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; margin: 4px 0 6px; }
   .csum .k { color: var(--muted); white-space: nowrap; }
   .csum .v { min-width: 0; overflow-wrap: anywhere; }
@@ -433,7 +440,7 @@
 
   function chipHtml(c) {
     var cls = 'chip' + (c.todo ? ' todo' : (c.stageId === 'ended' || c.stageId === 'mail' || c.contactedToday ? ' done' : ''))
-      + (selName === c.name ? ' sel' : '');
+      + (selName === c.name && !pickMode ? ' sel' : '') + (pickMode && searchPick[c.name] ? ' picked' : '');
     var flags = (c.flags || []).map(function (f) { return '<span class="flag">' + esc(f) + '</span>'; }).join('');
     return '<span class="' + cls + '" onclick="pickCust(' + esc(JSON.stringify(c.name)) + ')">'
       + '<span class="nm">' + esc(c.name) + '</span>'
@@ -504,7 +511,7 @@
         + hits.map(function (c) { return '<div>' + chipHtml(c) + ' <span class="meta">' + esc(labelOf[c.stageId] || '') + '</span></div>'; }).join('') + '</div>';
     } else {
       var roots = data.stages.filter(function (s) { return !s.parent; });
-      tree.innerHTML = '<ul>' + roots.map(stageHtml).join('') + '</ul>';
+      tree.innerHTML = pickbarHtml() + '<ul>' + roots.map(stageHtml).join('') + '</ul>';
     }
 
     var panel = document.getElementById('panel');
@@ -617,7 +624,23 @@
     }
     el.innerHTML = h;
   }
+  // ── まとめて検索: 名前を押して何人か選び、選んだ人の条件（おすすめ条件も）を1回の検索でまとめて回す ──
+  var pickMode = false, searchPick = {};
+  function pickbarHtml() {
+    if (!pickMode) return '<div class="pickbar"><button class="btn" onclick="pickMode=true;searchPick={};render()">🔍 まとめて検索</button></div>';
+    var n = Object.keys(searchPick).length;
+    return '<div class="pickbar on">名前を押して、検索する人を選んでください（' + n + '人）'
+      + ' <button class="btn save"' + (n ? '' : ' disabled') + ' onclick="searchPicked()">検索する（' + n + '人）</button>'
+      + ' <button class="btn" onclick="pickMode=false;searchPick={};render()">やめる</button></div>';
+  }
+  function searchPicked() {
+    var names = Object.keys(searchPick);
+    if (!names.length) return;
+    pickMode = false; searchPick = {}; render();
+    searchNow(names);
+  }
   function pickCust(name) {
+    if (pickMode) { if (searchPick[name]) delete searchPick[name]; else searchPick[name] = true; render(); return; }
     addMode = false;
     // 同じ名前をもう一度押したら右を閉じる
     if (selName === name) { selName = ''; askNext = askEnd = askViewing = ''; render(); return; }
@@ -652,6 +675,7 @@
     }).join('') : '<div class="meta">問い合わせの記録はありません</div>';
 
     h += '<div class="critbox"><div class="critttl">📋 登録中の条件</div>' + critSummaryHtml(c) + '</div>';
+    if (!c.lineOnly) h += recsHtml(c);
 
     h += '<div class="sec">メモ（お客様には見えません）</div>'
       + '<textarea id="memo" class="memo" oninput="memoInput(' + n + ',this.value)" onblur="memoSave(' + n + ')">' + esc(x.memoDraft) + '</textarea>'
@@ -669,7 +693,7 @@
     var x = extras[name];
     if (!x.crit) {
       var c = data.customers.filter(function (y) { return y.name === name; })[0] || {};
-      var src = c.criteria || {};
+      var src = (x.critMode && x.critMode.kind === 'rec') ? (x.critMode.seed || {}) : (c.criteria || {});
       x.crit = JSON.parse(JSON.stringify({
         areaMethod: src.areaMethod || 'route', routes: src.routes || {}, cities: src.cities || [], towns: src.towns || {},
         rentMax: src.rentMax || '', layouts: src.layouts || [], walk: src.walk || '', areaMin: src.areaMin || '',
@@ -743,6 +767,13 @@
     h += '<label class="fl">引越し希望日</label>' + moveInHtml(f)
       + '<label class="chk"><input type="checkbox"' + (f.moveInStrict ? ' checked' : '') + ' onchange="critSet(\'moveInStrict\',this.checked)"> この時期は厳守</label>';
     h += '<label class="fl">その他</label><textarea class="inp" rows="2" oninput="critSet(\'notes\',this.value)">' + esc(f.notes) + '</textarea>';
+    if (x.critMode && x.critMode.kind === 'rec') {
+      // おすすめ条件: 名前を付けて保存。お客様には送らない
+      h += '<label class="fl">この条件の名前</label><input class="inp" value="' + esc(x.critMode.label || '') + '" placeholder="例: 綾瀬まで広げる" oninput="extras[selName].critMode.label=this.value">';
+      h += '<div class="acts"><button class="btn save" onclick="saveRec()">おすすめ条件を保存する</button></div>'
+        + '<div class="meta">おすすめ条件は、お客様の登録した条件とは別に、こちらで検索する条件です。お客様には送りません。</div>';
+      return h + '</div>';
+    }
     h += '<div class="acts"><button class="btn save" onclick="saveCrit(false)">' + (x.critSaving ? '保存中…' : '保存する') + '</button>'
       + (c.lineUid ? '<button class="btn save line" onclick="saveCrit(true)">保存してLINEで送る</button>' : '') + '</div>'
       + (c.lineUid ? '<div class="meta">「LINEで送る」を押すと、お客様に条件のカードが届きます。</div>' : '<div class="meta">LINEがつながっていないので、お客様には届きません。</div>');
@@ -784,8 +815,50 @@
       return '<div class="k">' + r[0] + '</div><div class="v">' + (r[1] || '<span class="meta">指定なし</span>') + '</div>';
     }).join('') + '</div>' + (x.critSaving ? '<div class="meta">保存中…</div>' : '') + '<div class="acts">' + btn + '</div>';
   }
+  // ── おすすめ条件（こちらで登録する裏の条件）──
+  function recsHtml(c) {
+    var list = c.recs || [];
+    var h = '<div class="critbox rec"><div class="critttl">📋 おすすめ条件' + (list.length ? '（' + list.length + '件）' : '') + '</div>';
+    h += list.map(function (r) {
+      var a = esc(JSON.stringify(r.id));
+      return '<div class="recrow' + (r.enabled ? '' : ' off') + '"><div><b>' + (r.enabled ? '● ' : '○ ') + esc(r.label) + '</b>' + (r.enabled ? '' : ' <span class="meta">（オフ・自動検索しない）</span>')
+        + '<div class="meta">' + esc(r.summary || '') + '</div></div>'
+        + '<div class="pl"><a href="#" onclick="recEnable(' + a + ',' + (r.enabled ? 'false' : 'true') + ');return false">' + (r.enabled ? 'オフにする' : 'オンにする') + '</a>'
+        + '<a href="#" onclick="openRec(' + a + ');return false">直す</a><a href="#" class="skip" onclick="recDel(' + a + ');return false">消す</a></div></div>';
+    }).join('');
+    return h + '<div class="acts"><button class="btn" onclick="openRec(\'\')">＋ おすすめ条件を足す</button></div></div>';
+  }
+  function openRec(id) {
+    var name = selName, c = custOf(name), x = extras[name];
+    var r = (c.recs || []).filter(function (y) { return y.id === id; })[0];
+    // 新しく足すときは、お客様の条件から始める（そこから広げる・変えることが多いため）
+    x.crit = null; x.typing = {}; x.critMode = { kind: 'rec', id: id || '', label: r ? r.label : '', seed: r ? r.crit : (c.criteria || {}) };
+    critOpenFor = name;
+    document.getElementById('critSlideTitle').textContent = name + ' さんの' + (r ? 'おすすめ条件を直す' : 'おすすめ条件を足す');
+    document.getElementById('critSlideBody').scrollTop = 0;
+    document.getElementById('critSlide').classList.add('on');
+    document.getElementById('slideBg').classList.add('on');
+    render();
+  }
+  function saveRec() {
+    var name = selName, x = extras[name], m = x.critMode || {};
+    var f = JSON.parse(JSON.stringify(critOf(name))), label = (m.label || '').trim() || 'おすすめ条件';
+    closeCrit();
+    call('saveCrmRecommend', [name, m.id || '', label, f], 'おすすめ条件を保存しました', function (c) {
+      c.recs = c.recs || [];
+      var r = c.recs.filter(function (y) { return m.id && y.id === m.id; })[0];
+      if (r) { r.label = label; r.crit = f; } else c.recs.push({ id: '', label: label, enabled: true, summary: '保存中…', crit: f });
+    });
+  }
+  function recEnable(id, on) {
+    call('setCrmRecommendEnabled', [selName, id, on], on ? 'オンにしました' : 'オフにしました', function (c) { (c.recs || []).forEach(function (r) { if (r.id === id) r.enabled = on; }); });
+  }
+  function recDel(id) {
+    if (!confirm('このおすすめ条件を消します。よろしいですか？')) return;
+    call('deleteCrmRecommend', [selName, id], '消しました', function (c) { c.recs = (c.recs || []).filter(function (r) { return r.id !== id; }); });
+  }
   function openCrit() {
-    var x = extras[selName]; x.crit = null; x.typing = {};   // 開くたびに、今登録されている条件から始める
+    var x = extras[selName]; x.crit = null; x.typing = {}; x.critMode = { kind: 'main' };   // 開くたびに、今登録されている条件から始める
     critOpenFor = selName;
     document.getElementById('critSlideTitle').textContent = selName + ' さんの条件を変える';
     document.getElementById('critSlideBody').scrollTop = 0;
@@ -1535,18 +1608,19 @@
   var searchAck = null;
   window.addEventListener('message', function (ev) { if (ev.data && ev.data.type === 'SEARCH_NOW_ACK' && searchAck) searchAck(ev.data); });
   function searchNow(name) {
+    var names = Array.isArray(name) ? name : [name], label = names.length > 1 ? names.length + '人' : names[0] + 'さん';
     var done = false;
     var viaGas = function (why) {
       Q().withSuccessHandler(function (d) { applyResult(d); render(); toast((why ? why + '。' : '') + (d.savedMessage || '検索を頼みました')); })
-        .withFailureHandler(function (e) { toast('検索を頼めませんでした: ' + e.message); }).setCrmSearchNow(name);
+        .withFailureHandler(function (e) { toast('検索を頼めませんでした: ' + e.message); }).setCrmSearchNow(names);
     };
     searchAck = function (a) {
       if (done) return; done = true; searchAck = null;
-      if (a.started) toast(name + 'さんの検索を始めました（結果は新着とDiscordに入ります）');
+      if (a.started) toast(label + 'の検索を始めました（結果は新着とDiscordに入ります）');
       else viaGas('いまほかの検索が動いているので、終わったら始めます');
     };
     // all::名前 … 本人の条件だけでなく、こちらで登録したおすすめ条件もいっしょに検索する
-    try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: ['all::' + name] }, '*'); } catch (e) {}
+    try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: names.map(function (n) { return 'all::' + n; }) }, '*'); } catch (e) {}
     setTimeout(function () { if (!done) { done = true; searchAck = null; viaGas('このPCの拡張が見つからないので、PCの拡張に頼みます'); } }, 1500);
   }
   function lineOnlyEnd(name, uid, ended) {

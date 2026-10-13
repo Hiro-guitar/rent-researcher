@@ -190,12 +190,13 @@ function _mobileSaveRequest_(keys, mode) {
  * CRMの「🔍 今すぐ検索」。その人の登録条件で検索する指示を置く（拡張が1分以内に拾う。CRMを開いているPCならすぐ）。
  * ⚠️ 指示は1件しか持てないので、まだ拾われていない指示があれば、そこに人を足す（上書きすると前の人が消える）。
  */
-function setCrmSearchNow(customerName) {
-  customerName = String(customerName || '').trim();
-  if (!customerName) throw new Error('お客様が分かりません');
+function setCrmSearchNow(customerNames) {
+  var list = (Array.isArray(customerNames) ? customerNames : [customerNames]).map(function (n) { return String(n || '').trim(); }).filter(function (n) { return n; });
+  if (!list.length) throw new Error('お客様が分かりません');
+  var customerName = list[0];
   var props = PropertiesService.getScriptProperties();
   var cur = null; try { cur = JSON.parse(props.getProperty(MOBILE_SEARCH_KEY) || 'null'); } catch (e) {}
-  var keys = ['all::' + customerName];   // 本人の条件＋おすすめ条件を全部（拡張の runSearchCycle が all:: を解く）
+  var keys = list.map(function (n) { return 'all::' + n; });   // 本人の条件＋おすすめ条件を全部（拡張の runSearchCycle が all:: を解く）
   if (cur && cur.status === 'pending') {
     if (cur.mode === 'all') keys = [];   // もう全員分の指示が待っている
     else (cur.keys || []).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); });
@@ -203,8 +204,8 @@ function setCrmSearchNow(customerName) {
   var req = (cur && cur.status === 'pending' && cur.mode === 'all') ? cur : _mobileSaveRequest_(keys, 'selected');
   var seen = Number(props.getProperty(MOBILE_SEARCH_SEEN) || 0);
   var page = _crmTreeForPage_(customerName);
-  page.savedMessage = customerName + 'さんの検索を頼みました。PCの拡張が始めます（拡張が最後に見にきたのは' + _mobileAgo_(seen) + '）'
-    + (req.keys.length > 1 ? '。ほかに頼んでいる人とまとめて検索します（' + req.keys.length + '人）' : '');
+  page.savedMessage = (list.length > 1 ? list.length + '人' : customerName + 'さん') + 'の検索を頼みました。PCの拡張が始めます（拡張が最後に見にきたのは' + _mobileAgo_(seen) + '）'
+    + (req.keys.length > list.length ? '。ほかに頼んでいる人とまとめて検索します（' + req.keys.length + '人）' : '');
   return page;
 }
 

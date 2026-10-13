@@ -661,6 +661,7 @@ function _crmTreeForPage_(only) {
   var watch = (typeof _crmWatchAll_ === 'function') ? _crmWatchAll_() : {};
   var cands = (typeof _crmCandidatesAll_ === 'function') ? _crmCandidatesAll_() : {};
   var pstat = (typeof _crmPropStatusAll_ === 'function') ? _crmPropStatusAll_() : {};
+  var recs = _crmRecommendsAll_();
   var page = {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -676,7 +677,8 @@ function _crmTreeForPage_(only) {
         taskList: (c.tasks || []).map(function (t) { return { row: t.row, content: t.content, due: t.due || '', owner: t.owner || '自分', roomId: t.roomId || '' }; })
           .sort(function (a, b) { return (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0; }),
         watch: watch[c.name] || [],
-        pstat: pstat[c.name] || {},   // 物件ごとの検討状況（roomId → { s: 段階, w: 内見の日時, m: メモ }）
+        pstat: pstat[c.name] || {},
+        recs: (c.stageId !== 'ended' && c.stageId !== 'won') ? (recs[c.name] || []) : [],   // おすすめ条件   // 物件ごとの検討状況（roomId → { s: 段階, w: 内見の日時, m: メモ }）
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
         uid: c.lineOnly ? (c.uid || '') : '',   // 〔LINEのみ〕の人を顧客とつなぐときだけ使う
@@ -1609,11 +1611,18 @@ function _crmCriteriaAll_() {
   var out = {};
   var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
   var data = sh.getDataRange().getValues();
-  var split = function (v) { return v ? String(v).split(/[,、]\s*/).filter(function (x) { return x; }) : []; };
   for (var i = 1; i < data.length; i++) {
-    var r = data[i];
-    var name = String(r[1] || '').trim();
+    var name = String(data[i][1] || '').trim();
     if (!name) continue;
+    out[name] = _crmRowToCrit_(data[i]);
+  }
+  return out;
+}
+
+/** 検索条件シート（おすすめ検索条件シートも同じ並び）の1行を、CRMの条件の形にする。 */
+function _crmRowToCrit_(r) {
+  var split = function (v) { return v ? String(v).split(/[,、]\s*/).filter(function (x) { return x; }) : []; };
+  {
     // 路線(駅, 駅), 路線2(駅) の形をほどく
     var routes = {}, raw = String(r[4] || ''), depth = 0, cur = '', parts = [];
     for (var k = 0; k < raw.length; k++) {
@@ -1633,7 +1642,7 @@ function _crmCriteriaAll_() {
     var towns = {};
     try { towns = r[24] ? JSON.parse(String(r[24])) : {}; } catch (_e2) {}
     var rent = String(r[7] || '').replace('万円', '');
-    out[name] = {
+    return {
       areaMethod: Object.keys(routes).length ? 'route' : (split(r[3]).length ? 'city' : 'route'),
       routes: routes, cities: split(r[3]), towns: towns,
       rentMax: rent, layouts: split(r[8]),
@@ -1645,7 +1654,53 @@ function _crmCriteriaAll_() {
       has: !!(Object.keys(routes).length || split(r[3]).length || r[7] || split(r[8]).length)
     };
   }
+}
+
+// ── おすすめ条件（こちらで登録する裏の条件。RecommendCriteria.js）をCRMで ──
+/** 顧客名 → [{ id, label, enabled, summary, crit }] */
+function _crmRecommendsAll_() {
+  var out = {};
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(RECOMMEND_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, RECOMMEND_COL_MINFLOOR).getValues().forEach(function (r) {
+      var n = String(r[1] || '').trim(), id = String(r[34] || '').trim();
+      if (!n || !id) return;
+      var en = String(r[35] || '').trim().toLowerCase();
+      (out[n] = out[n] || []).push({ id: id, label: String(r[33] || '') || 'おすすめ条件', enabled: !(en === '0' || en === 'false'),
+        summary: (typeof _recSummary_ === 'function') ? _recSummary_(r) : '', crit: _crmRowToCrit_(r) });
+    });
+  } catch (e) { console.warn('[おすすめ条件] ' + e.message); }
   return out;
+}
+/** 画面: おすすめ条件を保存する（id が空なら新しく足す）。f はCRMの条件の形 */
+function saveCrmRecommend(customerName, id, label, f) {
+  f = f || {};
+  var city = f.areaMethod === 'city', routes = city ? [] : Object.keys(f.routes || {}), st = {};
+  routes.forEach(function (rn) { st[rn] = f.routes[rn] || []; });
+  var towns = {};
+  if (city) Object.keys(f.towns || {}).forEach(function (k) { if ((f.towns[k] || []).length && (f.cities || []).indexOf(k) >= 0) towns[k] = f.towns[k]; });
+  var r = saveRecommendCriteria({ customerName: customerName, id: id || '', label: label || 'おすすめ条件', fields: {
+    routes: routes, selectedStations: st, cities: city ? (f.cities || []) : [], towns: towns,
+    walk: f.walk || '', rent_max: f.rentMax || '', layouts: f.layouts || [], area_min: f.areaMin || '', building_age: f.age || '',
+    structures: f.structures || [], equipment: f.equipment || [], move_in_date: f.moveIn || '', move_in_strict: !!f.moveInStrict,
+    notes: f.notes || '', carModel: f.carModel || ''
+  } });
+  if (!r || !r.ok) throw new Error((r && r.message) || 'おすすめ条件を保存できませんでした');
+  try { cfSyncSheet(RECOMMEND_SHEET_NAME, 'おすすめ条件'); } catch (eCf) {}
+  var page = _crmTreeForPage_(customerName); page.savedMessage = 'おすすめ条件を保存しました'; return page;
+}
+function setCrmRecommendEnabled(customerName, id, on) {
+  var r = setRecommendEnabled(id, !!on);
+  if (!r || !r.ok) throw new Error((r && r.message) || '切り替えられませんでした');
+  try { cfSyncSheet(RECOMMEND_SHEET_NAME, 'おすすめ条件'); } catch (eCf) {}
+  var page = _crmTreeForPage_(customerName); page.savedMessage = on ? 'オンにしました（自動検索に入ります）' : 'オフにしました'; return page;
+}
+function deleteCrmRecommend(customerName, id) {
+  var r = deleteRecommendCriteria(id);
+  if (!r || !r.ok) throw new Error((r && r.message) || '消せませんでした');
+  try { cfSyncSheet(RECOMMEND_SHEET_NAME, 'おすすめ条件'); } catch (eCf) {}
+  var page = _crmTreeForPage_(customerName); page.savedMessage = 'おすすめ条件を消しました'; return page;
 }
 
 /**
