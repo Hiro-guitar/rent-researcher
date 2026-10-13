@@ -3066,6 +3066,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(err => { console.warn('[LINE表示名] トークを知らせられません: ' + err.message); sendResponse({ ok: false }); });
     return true;
   }
+  // CRMでLINEとつないだ: 対応表の使い回しを捨てる（次の巡回＝15秒以内に新しい対応表で付け替える）
+  if (msg.type === 'LINE_NAME_MAP_RESET') { _lineNameMap = null; _lineNameMapAt = 0; sendResponse({ ok: true }); return; }
   if (msg.type === 'LINE_NAME_MAP') {
     const now = Date.now();
     // fresh: まだ名前の付いていない人がいるときは、10秒より古ければ取り直す（メールを送った人をすぐ付け替えるため）

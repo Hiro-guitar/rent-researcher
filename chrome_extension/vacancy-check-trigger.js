@@ -42,6 +42,8 @@
         });
         return;
       }
+      // CRMでLINEとつないだ・名前を変えた: LINE Chat の名前の付け替えをすぐやり直す（2026-10-13）
+      if (d && d.type === 'LINE_MAP_REFRESH') { chrome.runtime.sendMessage({ type: 'LINE_NAME_MAP_RESET' }, function () { void chrome.runtime.lastError; }); return; }
       if (!d || d.type !== 'VACANCY_CHECK_REQUESTED') return;
 
       // 5秒以内の再送は無視（同じ押下が複数フレームから届くことがある）

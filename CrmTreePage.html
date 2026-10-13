@@ -1649,6 +1649,7 @@
     var v = (document.getElementById('newNm') || {}).value || '';
     if (!v.trim()) { toast('名前を入れてください'); return; }
     call('nameCrmLineOnly', [pseudo, uid, v.trim()], '登録しました');
+    setTimeout(lineMapRefresh, 4000);
   }
   // 今すぐ検索: このPCのChrome拡張に直接「この人を検索して」と伝えて、その場で始める。
   //   拡張がいない（スマホなど）・ほかの検索中のときだけ、GASに指示を置いて拡張に拾ってもらう
@@ -1708,11 +1709,13 @@
   function mailStop(name, stop) {
     call('setCrmMailStop', [name, stop], stop ? 'メールを止めました' : 'メールを再開しました', function (c) { c.mailStopped = !!stop; });
   }
+  // LINEとつないだ・名前を変えたら、LINE Chat の名前の付け替えを拡張にすぐやり直させる（いつもは対応表を10分使い回す）
+  function lineMapRefresh() { try { window.postMessage({ type: 'LINE_MAP_REFRESH' }, '*'); } catch (e) {} }
   function renameAsk(name) {
     var v = prompt('新しい名前（関係するシートの名前もまとめて変わります）', name);
     if (!v || v.trim() === name) return;
     Q()
-      .withSuccessHandler(function (d) { applyResult(d); selName = d.newName || v.trim(); render(); toast(d.savedMessage || '変えました'); })
+      .withSuccessHandler(function (d) { applyResult(d); selName = d.newName || v.trim(); render(); toast(d.savedMessage || '変えました'); lineMapRefresh(); })
       .withFailureHandler(function (e) { toast(e.message); })
       .renameCrmCustomer(name, v.trim());
   }
@@ -1739,7 +1742,7 @@
     if (!uid) { toast('LINEのIDが分かりません'); return; }
     toast('つないでいます…');
     Q()
-      .withSuccessHandler(function (d) { applyResult(d); lineCands = null; selName = d.newName || name; render(); toast(d.savedMessage || 'つなぎました'); })
+      .withSuccessHandler(function (d) { applyResult(d); lineCands = null; selName = d.newName || name; render(); toast(d.savedMessage || 'つなぎました'); lineMapRefresh(); })
       .withFailureHandler(function (e) {
         if (/付け替える場合/.test(e.message) && !force && confirm(e.message.replace('もう一度押してください', '付け替えますか？'))) { doLink(name, uid, true); return; }
         toast(e.message);
