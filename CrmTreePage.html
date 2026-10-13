@@ -1222,7 +1222,8 @@
           + ' <a href="#" onclick="taskDone(' + a + ');return false">済み</a></div>';
       }).join('')
       // 注意（⚠）は1行にまとめる。押すと全部
-      + (warns.length ? '<div class="warn' + (wOpen ? '' : ' wline') + '" onclick="toggleWarn(' + rid + ')" title="押すと全部見えます">⚠ ' + warns.map(function (w) { return esc(String(w).replace(/^⚠\s*/, '')); }).join(' ／ ') + '</div>' : '')
+      // 注意（⚠）は省かずに全部出す（2026-10-13 ユーザー指摘）
+      + (warns.length ? '<div class="warn">' + warns.map(function (w) { return '⚠ ' + esc(String(w).replace(/^⚠\s*/, '')); }).join('<br>') + '</div>' : '')
       + '<div class="pl">' + main.join('') + '</div>'
       + (menuOpen ? '<div class="pl pmore">' + more.join('') + '</div>' : '');
     if ((kind === 'sent' || kind === 'react') && x.fwdRoom === p.roomId) {
