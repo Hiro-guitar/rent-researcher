@@ -2747,6 +2747,12 @@ async function pollMobileSearchRequest() {
       console.warn('[空室確認] 相乗りの処理に失敗: ' + eAv.message);
     }
 
+    // CRMの「空室を確かめる」の相乗り（スマホから押した分など）
+    try {
+      const _pc = (j && Array.isArray(j.pendingChecks)) ? j.pendingChecks : [];
+      if (_pc.length && typeof runPendingChecks === 'function') await runPendingChecks(_pc);
+    } catch (ePc) { console.warn('[新着の空室確認] ' + ePc.message); }
+
     const req = j && j.request;
     if (!req) return;
     // mode:'all' は顧客を指定しない指示。いつもどおり（PCの顧客フィルタに従って）回す。
@@ -2966,6 +2972,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       runSearchCycle(msg.keys);
       sendResponse({ started: true });
     });
+    return true;
+  }
+  // CRMの「空室を確かめる」（同じPC）: 確かめ待ちを取りに行って、すぐ確かめる
+  if (msg.type === 'PENDING_CHECK_NOW') {
+    gasGet('pending_check_poll', {}).then(r => {
+      const items = (r && r.items) || [];
+      sendResponse({ ok: true, n: items.length });
+      if (items.length && typeof runPendingChecks === 'function') runPendingChecks(items);
+    }).catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   }
   if (msg.type === 'SEARCH_POLL_NOW') {

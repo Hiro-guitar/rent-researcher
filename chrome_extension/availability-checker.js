@@ -1077,6 +1077,41 @@ const AVAIL_RUN_LOCK_STALE_MS = 5 * 60 * 1000;
  *   同じ物件をもう一度拾ってしまう。2つが同時にタブを取り合い、先に正しく出た
  *   判定を後から unknown が上書きする（2026-09-20 実際に発生）。
  */
+// ── CRMの「空室を確かめる」（新着の物件）。結果は pending_check_result で返す（2026-10-13）──
+// ⚠️ update_availability には送らないこと。あちらは送った物件用で、空いたらお客様に知らせる動きが付いている
+async function runPendingChecks(items) {
+  items = Array.isArray(items) ? items : [];
+  if (!items.length) return { processed: 0 };
+  // ほかの空室確認が動いていたら、終わるまで少し待つ（タブを取り合わないように）
+  for (let w = 0; w < 20; w++) {
+    const f = await new Promise(r => chrome.storage.local.get(['__availabilityCheckRunning', '__periodicCheckRunning'], d => r(d)));
+    if (!f.__availabilityCheckRunning && !f.__periodicCheckRunning) break;
+    await new Promise(r => setTimeout(r, 15000));
+  }
+  await setStorageData({ debugLog: `[新着の空室確認] ${items.length}件を確かめます` });
+  const results = [];
+  for (const it of items) {
+    try {
+      const res = await checkOneAvailability(it);
+      const status = (res && res.status) || 'unknown';
+      results.push({ customer: it.customer, room_id: it.roomId, status });
+      await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} ${_detectSourceFromUrl(it.url) || it.source} → ${status}` });
+    } catch (e) {
+      results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
+      await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} エラー ${e.message}` });
+    }
+  }
+  try {
+    const r = await gasPost({ action: 'pending_check_result', items: results });
+    await setStorageData({ debugLog: `[新着の空室確認] 結果を書きました（${(r && r.n) || 0}件・見送ったへ ${(r && r.moved) || 0}件）` });
+  } catch (e) {
+    await setStorageData({ debugLog: `[新着の空室確認] 結果を書けませんでした: ${e.message}` });
+  }
+  try { await _closeAllAvailabilityTabs(); } catch (_) {}
+  return { processed: results.length };
+}
+globalThis.runPendingChecks = runPendingChecks;
+
 async function runAvailabilityForItems(items) {
   const lock = await new Promise(r => chrome.storage.local.get([AVAIL_RUN_LOCK_KEY], d => r(d)));
   const startedAt = Number(lock && lock[AVAIL_RUN_LOCK_KEY]) || 0;

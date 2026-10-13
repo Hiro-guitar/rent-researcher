@@ -106,6 +106,13 @@ function doPost(e) {
     // ⚠️ update_availability は使わないこと。あちらは空いたらキャンセル待ちの印を消し、
     //   Discord にも送る（拡張も送るので二重になる）。ここは F列(状態)・G列(確認日時)を書くだけ。
     //   CRMの「キャンセル待ち」欄が、この記録を見て空き状況を出す。
+    // 拡張から: 新着の空室を確かめた結果
+    if (json.action === 'pending_check_result') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify(recordCrmPendingCheck_(json.items))).setMimeType(ContentService.MimeType.JSON);
+    }
     // 拡張から: 同じ建物・同じ広さで見送った部屋の数（残した部屋の J列 JSON に same_building_more を書く。CRMの新着に ⚠ で出す）
     if (json.action === 'set_same_building_more') {
       if (!_validateReinsApiKey(json.api_key)) {
@@ -1857,6 +1864,13 @@ function doGet_(e) {
           .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
       }
       return handleMobileSearchPage(e);
+    }
+    // 拡張（CRMの「空室を確かめる」）: 新着の確かめ待ちを取りに来る
+    if (action === 'pending_check_poll') {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, items: _crmPendingCheckTake_() })).setMimeType(ContentService.MimeType.JSON);
     }
     if (action === 'search_request_poll') {
       if (!_validateReinsApiKey(e.parameter.api_key)) {

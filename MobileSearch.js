@@ -149,10 +149,15 @@ function handleSearchRequestPoll(json) {
     console.warn('[ポーリング] 空室確認キューを読めません: ' + eA.message);
   }
 
+  // CRMの「空室を確かめる」（スマホから押した分など）。依頼が無ければプロパティを1つ読むだけ
+  var pendingChecks = [];
+  try { if (props.getProperty('CRM_PENDING_CHECK')) pendingChecks = _crmPendingCheckTake_(); } catch (ePc) {}
+
   return ContentService.createTextOutput(JSON.stringify({
     ok: true,
     request: (req && req.status === 'pending') ? req : null,
-    availability: availability
+    availability: availability,
+    pendingChecks: pendingChecks
   })).setMimeType(ContentService.MimeType.JSON);
 }
 

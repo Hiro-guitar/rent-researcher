@@ -1189,6 +1189,7 @@
     }
     if (kind === 'skip') tags += ' <span class="meta">' + esc(p.at) + '見送った</span>';
     if (p.closed) tags += ' <span class="endtag">募集終了</span>';
+    if (p.availTag) tags += ' <span class="' + (/^✓/.test(p.availTag) ? 'stag' : 'endtag') + '">' + esc(p.availTag) + '</span>';   // 空室を確かめた結果
     if (watching[p.roomId] || p.watching) tags += ' <span class="meta">⏳キャンセル待ち中</span>';
     var ps = (c.pstat || {})[p.roomId] || {};
     if (ps.s) tags += ' <span class="stag">' + esc(ps.s) + (ps.w ? ' ' + esc(ps.w) : '') + '</span>';
@@ -1322,7 +1323,12 @@
         // 「全部選ぶ」は、いま出ている物件だけ（絞り込み中は当たった物件だけ）
         var shownIds = esc(JSON.stringify(list.map(function (p) { return p.roomId; })));
         var lbl = (pq ? '表示中の' : '') + sc.k + 'を全部' + (allOn ? '外す' : '選ぶ') + (pq ? '（' + list.length + '件）' : '');
+        // 空室を確かめる: 選んだ物件があればそれだけ、なければ表示中の全部
+        var pickedHere = list.filter(function (p) { return x.pick[p.roomId]; }).map(function (p) { return p.roomId; });
+        var chkIds = pickedHere.length ? pickedHere : list.map(function (p) { return p.roomId; });
+        var chkLbl = '🔍 ' + (pickedHere.length ? '選んだ' : '表示中の') + chkIds.length + '件の空室を確かめる';
         h += '<div class="pl" style="margin:2px 0"><a href="#" onclick="pickList(' + shownIds + ',' + (allOn ? 'false' : 'true') + ');return false">' + lbl + '</a>'
+          + (list.length ? ' <a href="#" onclick="pendingCheck(' + esc(JSON.stringify(chkIds)) + ');return false">' + chkLbl + '</a>' : '')
           + (tabK === 'new' ? ' <span class="meta">⚠の付いた物件は後ろにまとめています</span>' : '') + '</div>';
         h += list.map(function (p) { return propRow(p, tabK, c, x, watching); }).join('');
       } else if (sc.k === 'キャンセル待ち') {
@@ -1499,6 +1505,17 @@
     call('sendCrmProperties', [name, [rid], ''], '送りました');
   }
   // 新着・候補のタブで全部選ぶ／外す
+  // 新着の空室を確かめる。依頼を置いたら、このPCの拡張にすぐ取りに行かせる（スマホなら1分以内に拡張が拾う）
+  function pendingCheck(ids) {
+    if (!ids.length) return;
+    if (ids.length > 30 && !confirm(ids.length + '件の空室を確かめます。サイトを1件ずつ見るので、少し時間がかかります。よろしいですか？')) return;
+    var name = selName;
+    toast(ids.length + '件の空室確認を頼んでいます…');
+    Q().withSuccessHandler(function (d) {
+      applyResult(d); render(); toast((d.savedMessage || '空室を確かめます') + '。終わると、申込あり・募集終了の物件は「見送った」に移ります');
+      try { window.postMessage({ type: 'PENDING_CHECK_REQUESTED' }, '*'); } catch (e) {}
+    }).withFailureHandler(function (e) { toast('頼めませんでした: ' + e.message); }).setCrmPendingCheck(name, ids);
+  }
   function pickList(ids, on) {
     var x = extras[selName];
     ids.forEach(function (k) { if (on) x.pick[k] = true; else delete x.pick[k]; });

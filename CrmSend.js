@@ -96,7 +96,8 @@ function _crmPendingAll_(crits, only) {
         watching: !!(k && watchKeys[k]),
         warnings: String(warn).split('\n').filter(function (s) { return s; }),
         found: (data[i][11] instanceof Date) ? Utilities.formatDate(data[i][11], 'Asia/Tokyo', 'M/d') : '',
-        comment: String(data[i][14] || '')   // O列: 担当者コメント（別の人から引き継いだものも）
+        comment: String(data[i][14] || ''),   // O列: 担当者コメント（別の人から引き継いだものも）
+        availTag: (function () { try { return _crmAvailTag_(JSON.parse(String(data[i][9] || '{}'))); } catch (eA) { return ''; } })()
       });
     }
   } catch (e) { console.warn('[送る物件] 承認待ちを読めません: ' + e.message); }
@@ -693,7 +694,7 @@ function _crmPropListsFor_(names) {
       image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, url: _crmSourceUrl_(p) };
     var o = out[n] = out[n] || { sent: [], skipped: [] };
     if (st === 'sent') { item.sentAt = day; item.closed = closedBy[n + '|' + rid] || ''; o.sent.push(item); }
-    else { item.at = day; o.skipped.push(item); }
+    else { item.at = day; try { item.availTag = _crmAvailTag_(JSON.parse(String(data[i][9] || '{}'))); } catch (eA) {} o.skipped.push(item); }
   }
   // お客様の反応（アクションログ）: 見た回数・最後に見た時刻・いちばん新しい押した操作（お気に入り・内見希望など）
   var react = {};
@@ -728,6 +729,77 @@ function _crmPropListsFor_(names) {
 }
 
 /** 元のページのアドレス。REINSは物件のアドレスを持たないので、物件番号から詳細ページを開くリンクを作る（拡張が開いてくれる）。 */
+// ── 新着の空室を確かめ直す（2026-10-13）──
+// 送った物件の空室確認（update_availability）は、空いたらお客様に知らせる等の動きが付いているので使わない。新着用の別の口。
+// CRMが依頼を置く → 拡張が取りに来て元のサイトを見る → pending_check_result で返す。申込あり・募集終了は「見送った」へ移す。
+var CRM_PCHECK_KEY = 'CRM_PENDING_CHECK';   // スクリプトのプロパティ: 確かめ待ちの物件 [{customer, roomId, url, source, reinsPropNo}]
+
+function setCrmPendingCheck(customerName, roomIds) {
+  customerName = String(customerName || '').trim();
+  var want = {}; (roomIds || []).forEach(function (r) { want[String(r)] = true; });
+  if (!customerName || !Object.keys(want).length) throw new Error('確かめる物件を選んでください');
+  var rows = _findRowsByRoomIdsAnyStatus_(customerName, Object.keys(want));
+  var props = PropertiesService.getScriptProperties();
+  var q = []; try { q = JSON.parse(props.getProperty(CRM_PCHECK_KEY) || '[]'); } catch (e) {}
+  var have = {}; q.forEach(function (it) { have[it.customer + '|' + it.roomId] = true; });
+  var added = 0, noUrl = 0;
+  rows.forEach(function (r) {
+    if (String(r.values[10]) !== 'pending') return;
+    var js = {}; try { js = JSON.parse(String(r.values[9] || '{}')); } catch (e) {}
+    var rid = String(r.values[2]);
+    var url = _crmSourceUrl_(js);
+    if (!url) { noUrl++; return; }
+    if (have[customerName + '|' + rid]) return;
+    q.push({ customer: customerName, roomId: rid, url: url, source: String(js.source || ''), reinsPropNo: String(js.reins_property_number || '') });
+    have[customerName + '|' + rid] = true; added++;
+  });
+  props.setProperty(CRM_PCHECK_KEY, JSON.stringify(q.slice(-100)));
+  var page = _crmTreeForPage_(customerName);
+  page.savedMessage = added + '件の空室を確かめます' + (noUrl ? '（元のページが分からない' + noUrl + '件は確かめられません）' : '');
+  page.pcheckQueued = added;
+  return page;
+}
+
+/** 拡張が取りに来る。取ったら空にする（同じ物件を二重に見ない）。 */
+function _crmPendingCheckTake_() {
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch (e) { return []; }
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var q = []; try { q = JSON.parse(props.getProperty(CRM_PCHECK_KEY) || '[]'); } catch (e2) {}
+    if (q.length) props.deleteProperty(CRM_PCHECK_KEY);
+    return q;
+  } finally { lock.releaseLock(); }
+}
+
+/** 拡張から結果: [{customer, room_id, status}]。J列に確かめた結果を書き、申込あり・募集終了は見送ったへ。 */
+function recordCrmPendingCheck_(items) {
+  var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+  if (!sh || sh.getLastRow() < 2 || !Array.isArray(items)) return { ok: true, n: 0 };
+  var by = {}; items.forEach(function (it) { if (it && it.customer && it.room_id) by[String(it.customer).trim() + '|' + String(it.room_id)] = it; });
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, 11).getValues(), rows = [], moved = 0;
+  var at = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'M/d');
+  for (var i = 0; i < data.length; i++) {
+    var it = by[String(data[i][0]).trim() + '|' + String(data[i][2])];
+    if (!it) continue;
+    var st = String(it.status || 'unknown');
+    var js = {}; try { js = JSON.parse(String(data[i][9] || '{}')); } catch (e) {}
+    js.avail_check = { s: st, at: at };
+    sh.getRange(i + 2, 10).setValue(JSON.stringify(js));
+    if ((st === 'applied' || st === 'closed') && String(data[i][10]) === 'pending') { updatePendingStatus(i + 2, 'skipped', ''); moved++; }
+    rows.push(i + 2);
+  }
+  try { if (rows.length) cfSyncRows(PENDING_SHEET_NAME, rows, '新着の空室確認'); } catch (eCf) {}
+  return { ok: true, n: rows.length, moved: moved };
+}
+
+/** 画面に出す札（J列の avail_check から） */
+function _crmAvailTag_(js) {
+  var a = js && js.avail_check; if (!a) return '';
+  var L = { available: '✓ 空室', applied: '申込あり', closed: '募集終了', unknown: '? 確認できず' };
+  return (L[a.s] || ('? ' + a.s)) + ' ' + (a.at || '') + '確認';
+}
+
 function _crmSourceUrl_(p) {
   if (p && p.url) return String(p.url);
   var num = String((p && (p.reins_property_number || p.reinsPropertyNumber)) || '').replace(/\D/g, '');
