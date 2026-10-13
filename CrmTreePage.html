@@ -1679,10 +1679,11 @@
     var lines = ['BEGIN:VCARD', 'VERSION:3.0',
       'N:' + q(parts[0]) + ';' + q(parts.slice(1).join(' ')) + ';;;',
       'FN:' + q(name),
-      'ORG:' + q('えほうまき お客様')];
+      // いつのお客様か思い出せるように、入れた日を会社名とメモに入れる
+      'ORG:' + q('えほうまき お客様 ' + todayYmd().replace(/-/g, '/'))];
     if (c.phone) lines.push('TEL;TYPE=CELL:' + q(c.phone));
     if (c.email) lines.push('EMAIL:' + q(c.email));
-    lines.push('NOTE:' + q('えほうまき お客様' + (inq && inq.property ? '（問い合わせ: ' + inq.property + '）' : '')));
+    lines.push('NOTE:' + q('えほうまき お客様・' + todayYmd().replace(/-/g, '/') + ' に登録' + (inq ? '（' + (inq.date ? inq.date + ' ' : '') + (inq.property ? '問い合わせ: ' + inq.property : '') + '）' : '')));
     lines.push('END:VCARD');
     var blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/vcard;charset=utf-8' });
     var a = document.createElement('a');
