@@ -33,7 +33,9 @@
     var d = new Date(lastCheckAt || Date.now());
     el.textContent = '最終更新 ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2);
   }
-  setInterval(function () { if (document.visibilityState === 'visible') checkNow(false); }, 30000);
+  // 画面を見ている間は10秒ごとに確かめる（スマホで操作した分をPCにすぐ出すため。2026-10-13 30秒→10秒）
+  // ⚠️ /api/ver は config の数行を読むだけ。10秒ごとでも1画面1日17万行ほどで、無料の読み取り上限（1日500万行）の数％
+  setInterval(function () { if (document.visibilityState === 'visible') checkNow(false); }, 10000);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkNow(false); });
   window.addEventListener('focus', function () { checkNow(false); });
 
