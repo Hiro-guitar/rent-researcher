@@ -86,6 +86,46 @@ globalThis.__removeMoshikomiKey = (building, room) => {
     chrome.storage.local.set({ moshikomiSkipMap: globalThis.__moshikomiSkipMap }).catch(()=>{});
   }
 };
+// ── 同じ建物・同じ広さ・同じ階の区分（1階／2階以上）の部屋は、1回の検索で3部屋まで（2026-10-13）──
+//   新築の大きな建物（例: アラート横濱桜木町）は同じ間取りの部屋が何十件も出て、詳しく見るのと写真で時間を使い、通知も埋まった。
+//   4サイトまとめて数える（同じ部屋が別のサイトで出ても1部屋）。見送った部屋の数は「ほかに◯部屋」として通知とCRMに出す。
+const __SB_MAX = 3;
+globalThis.__sbReset = () => { globalThis.__sb = { kept: {}, extra: {} }; };
+globalThis.__sbReset();
+globalThis.__sbFloor = (p) => {
+  const t = String(p.floor || p.floorText || p.floor_text || '').normalize('NFKC');
+  const m = t.match(/(\d+)\s*階/) || t.match(/^(\d+)$/);
+  if (m) return Number(m[1]);
+  const r = String(p.room_number || p.roomNumber || '').normalize('NFKC').replace(/\D/g, '');
+  return r.length >= 3 ? Math.floor(Number(r) / 100) : 0;
+};
+globalThis.__sbKey = (cust, p) => {
+  if (!p) return '';
+  const b = (typeof normalizeBuildingName === 'function') ? normalizeBuildingName(p.building_name || p.buildingName || '') : String(p.building_name || '');
+  const a = parseFloat(String(p.area ?? p.floor_area_amount ?? '').normalize('NFKC').replace(/[^\d.]/g, ''));
+  if (!b || !a) return '';
+  const f = globalThis.__sbFloor(p);
+  return cust + '|' + b + '|' + a.toFixed(1) + '|' + (f === 1 ? '1F' : f >= 2 ? '2F+' : '?');
+};
+globalThis.__sbRoom = (p) => String(p.room_number || p.roomNumber || '').normalize('NFKC').replace(/\D/g, '').replace(/^0+/, '') || String(p.room_id || p.url || '');
+// もう3部屋そろっている区分の、まだ数えていない部屋なら true（見送った部屋として数える）
+globalThis.__sbShouldSkip = (cust, p) => {
+  if (globalThis._suumoPatrolMode || !globalThis.__sb) return false;
+  const k = globalThis.__sbKey(cust, p); if (!k) return false;
+  const kept = globalThis.__sb.kept[k], room = globalThis.__sbRoom(p);
+  if (!kept || kept.has(room) || kept.size < __SB_MAX) return false;
+  (globalThis.__sb.extra[k] = globalThis.__sb.extra[k] || new Set()).add(room);
+  return true;
+};
+globalThis.__sbKeep = (cust, p) => {
+  const k = globalThis.__sbKey(cust, p); if (!k) return;
+  (globalThis.__sb.kept[k] = globalThis.__sb.kept[k] || new Set()).add(globalThis.__sbRoom(p));
+};
+globalThis.__sbMoreOf = (cust, p) => {
+  const k = globalThis.__sbKey(cust, p); if (!k) return null;
+  const n = (globalThis.__sb.extra[k] || new Set()).size;
+  return n ? { n, floor: k.endsWith('|1F') ? '1階' : k.endsWith('|2F+') ? '2階以上' : '' } : null;
+};
 globalThis.__hasMoshikomiKey = (building, room) => {
   const k = globalThis.__normMoshikomiKey(building, room);
   if (!k) return false;
@@ -992,7 +1032,22 @@ function _recordNoImageProps(properties) {
   } catch (e) {}
 }
 
-async function submitProperties(customerName, properties) {
+async function submitProperties(customerName, properties, opts) {
+  // 検索から来たものだけ、同じ建物・同じ広さ・同じ階の区分を3部屋までにする（カート送信などは数えない）
+  if (opts && opts.fromSearch && !globalThis._suumoPatrolMode) {
+    const keep = [];
+    for (const p of properties) {
+      if (globalThis.__sbShouldSkip(customerName, p)) {
+        p._sbCapped = true;
+        await setStorageData({ debugLog: `${customerName}: ✗ 同じ建物・同じ広さの部屋は${__SB_MAX}部屋まで → 見送り: ${p.building_name || ''} ${p.room_number || ''}` });
+        continue;
+      }
+      globalThis.__sbKeep(customerName, p);
+      keep.push(p);
+    }
+    if (!keep.length) return { success: true, added: 0, _sbCapped: true };
+    properties = keep;
+  }
   _recordNoImageProps(properties);
   // SUUMO巡回モードではGASに顧客向け送信しない（コレクターに追加）
   if (globalThis._suumoPatrolMode && globalThis._suumoPatrolCollector) {
@@ -5529,6 +5584,7 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     // log.html の顧客フィルタの表示順とも一致するようになる。
     // 順番は「絞り込む前の全条件」基準で決める（本人OFF＋おすすめONのお客さんが飛ばないように）
     const criteria = groupCriteriaByCustomer(_selected, allCriteria);
+    globalThis.__sbReset();   // 同じ建物の部屋の数え直し（検索1回ごと）
     // 4サイトを同時に進めるか（既定はする。log.html などで parallelServices=false にすると順番に戻る）
     {
       const { parallelServices } = await getStorageData(['parallelServices']);
@@ -7384,7 +7440,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           globalThis.__reinsPendingDeliver = (async () => {
             let __reinsSubmitAdded = 0;
             try {
-              const submitResult = await submitProperties(_submitCustomer.name, [_submitDetail]);
+              const submitResult = await submitProperties(_submitCustomer.name, [_submitDetail], { fromSearch: true });
               if (submitResult?.success) {
                 __reinsSubmitAdded = submitResult.added || 0;
                 currentStats.totalSubmitted += __reinsSubmitAdded;
@@ -8388,6 +8444,7 @@ function _moveInTooEarlySkip_(prop, customer) {
 async function deliverProperty(customerName, prop, customer, service) {
   // SUUMO巡回モードではDiscord通知をスキップ
   if (globalThis._suumoPatrolMode) return;
+  if (prop && prop._sbCapped) return;   // 同じ建物の4部屋目以降（submitProperties で見送り）
 
   const { notifyMode } = await getStorageData(['notifyMode']);
   if (notifyMode === 'batch' || globalThis._parallelCycle) {   // 4サイト同時のときは必ず貯める（重なり・申込ありを最後にまとめて見る）
@@ -8459,6 +8516,18 @@ async function flushBatchBufferForCustomer(customerName) {
   }
   const winners = [...byKey.values(), ...noKey];
   const props = winners.map(e => e.prop);
+  // 同じ建物・同じ広さで見送った部屋があれば、残した部屋に「ほかに◯部屋」を付けて、CRMにも知らせる
+  try {
+    const _sbItems = [];
+    for (const p of props) {
+      const more = globalThis.__sbMoreOf(customerName, p);
+      if (!more) continue;
+      const line = `⚠️ 同じ建物・同じ広さ（${more.floor || '同じ階の区分'}）の部屋がほかに${more.n}部屋あります`;
+      p.warnings_text = (p.warnings_text ? p.warnings_text + '\n' : '') + line;
+      if (p.room_id) _sbItems.push({ room_id: p.room_id, n: more.n, floor: more.floor });
+    }
+    if (_sbItems.length) gasPost({ action: 'set_same_building_more', customer_name: customerName, items: _sbItems }).catch(() => {});
+  } catch (eSb) { console.warn('[同じ建物] ' + eSb.message); }
   const customer = winners[0].customer;
   await setStorageData({ debugLog: `[system] ${customerName}: ${entries.length}件→重複${dropped.length}件排除→${winners.length}件通知` });
   // 排除された物件を1件ずつログ

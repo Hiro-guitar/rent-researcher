@@ -106,6 +106,31 @@ function doPost(e) {
     // ⚠️ update_availability は使わないこと。あちらは空いたらキャンセル待ちの印を消し、
     //   Discord にも送る（拡張も送るので二重になる）。ここは F列(状態)・G列(確認日時)を書くだけ。
     //   CRMの「キャンセル待ち」欄が、この記録を見て空き状況を出す。
+    // 拡張から: 同じ建物・同じ広さで見送った部屋の数（残した部屋の J列 JSON に same_building_more を書く。CRMの新着に ⚠ で出す）
+    if (json.action === 'set_same_building_more') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var sbOut = { ok: true, n: 0 };
+      try {
+        var sbName = String(json.customer_name || '').trim(), sbBy = {};
+        (json.items || []).forEach(function (it) { if (it && it.room_id) sbBy[String(it.room_id)] = it; });
+        var sbSh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+        if (sbName && sbSh && sbSh.getLastRow() > 1) {
+          var sbData = sbSh.getRange(2, 1, sbSh.getLastRow() - 1, 10).getValues(), sbRows = [];
+          for (var si = 0; si < sbData.length; si++) {
+            var it = sbBy[String(sbData[si][2])];
+            if (!it || String(sbData[si][0]).trim() !== sbName) continue;
+            var js = {}; try { js = JSON.parse(String(sbData[si][9] || '{}')); } catch (eJ) {}
+            js.same_building_more = Number(it.n) || 0; js.same_building_floor = String(it.floor || '');
+            sbSh.getRange(si + 2, 10).setValue(JSON.stringify(js)); sbRows.push(si + 2);
+          }
+          sbOut.n = sbRows.length;
+          if (sbRows.length) { try { cfSyncRows(PENDING_SHEET_NAME, sbRows, '同じ建物'); } catch (eCf) {} }
+        }
+      } catch (eSb) { sbOut = { ok: false, error: eSb.message }; }
+      return ContentService.createTextOutput(JSON.stringify(sbOut)).setMimeType(ContentService.MimeType.JSON);
+    }
     // 拡張から: 1回の検索で検索した人と新着の件数（CRMの「今日の検索 ◯回」用）
     if (json.action === 'record_search_runs') {
       if (!_validateReinsApiKey(json.api_key)) {

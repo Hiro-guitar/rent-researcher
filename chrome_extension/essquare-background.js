@@ -2179,6 +2179,11 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ 一覧段階スキップ: ${prop.building_name} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}${globalThis.__formatPropSkipUrl(prop)}` });
         continue;
       }
+      // 同じ建物・同じ広さ・同じ階の区分はもう3部屋ある → 詳しく見ない
+      if (!globalThis._suumoPatrolMode && globalThis.__sbShouldSkip && globalThis.__sbShouldSkip(customer.name, prop)) {
+        await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ 一覧段階スキップ: ${prop.building_name} ${prop.room_number || ''} - 同じ建物・同じ広さはもう3部屋` });
+        continue;
+      }
 
       // ── スキップ済みチェック（前回弾いた物件は詳細ページを開かない）──
       const _propKey = prop.room_id || prop.url || '';
@@ -2548,7 +2553,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
       // GAS送信（1物件ずつ）
       try {
-        const submitResult = await submitProperties(customer.name, [prop]);
+        const submitResult = await submitProperties(customer.name, [prop], { fromSearch: true });
         if (submitResult?.success) {
           const { stats } = await getStorageData(['stats']);
           const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };

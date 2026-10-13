@@ -1077,6 +1077,11 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 一覧段階スキップ: ${prop.building_name} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}${globalThis.__formatPropSkipUrl(prop)}` });
         continue;
       }
+      // 同じ建物・同じ広さ・同じ階の区分はもう3部屋ある → 詳しく見ない
+      if (!globalThis._suumoPatrolMode && globalThis.__sbShouldSkip && globalThis.__sbShouldSkip(customer.name, prop)) {
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 一覧段階スキップ: ${prop.building_name} ${prop.room_number || ''} - 同じ建物・同じ広さはもう3部屋` });
+        continue;
+      }
 
       // ── SUUMO巡回: 既知物件・競合/順位スキップ済みの早期スキップ（詳細ページ遷移前） ──
       if (globalThis._suumoPatrolMode && !isForced) {
@@ -1282,7 +1287,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
       // リアルタイムでGAS送信（1物件ずつ）
       try {
-        const submitResult = await submitProperties(customer.name, [prop]);
+        const submitResult = await submitProperties(customer.name, [prop], { fromSearch: true });
         if (submitResult?.success) {
           const { stats } = await getStorageData(['stats']);
           const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };

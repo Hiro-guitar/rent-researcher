@@ -79,6 +79,11 @@ function _crmPendingAll_(crits, only) {
       var cr = (crits && crits[name]) || {};
       var warn = '';
       try { warn = _computePropertyWarningsGAS_(p, (cr.equipment || []).join(','), cr.notes || '') || ''; } catch (_w) {}
+      // 同じ建物・同じ広さで、検索が見送った部屋の数（拡張が set_same_building_more で書く）
+      try {
+        var _js = JSON.parse(String(data[i][9] || '{}'));
+        if (_js.same_building_more) warn = (warn ? warn + '\n' : '') + '⚠️ 同じ建物・同じ広さ（' + (_js.same_building_floor || '同じ階の区分') + '）の部屋がほかに' + _js.same_building_more + '部屋あります';
+      } catch (_sb) {}
       // 承認ページで選んだ写真（順番も）があればそれを出す。送るカードと同じ並びになる
       var edited = !!(p.selectedImageUrls && p.selectedImageUrls.length);
       var imgs = edited ? p.selectedImageUrls : ((p.imageUrls && p.imageUrls.length) ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []));
