@@ -6552,6 +6552,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               commonFeeText: items[21]?.textContent.trim() || '',     // 共益費（row4 col5）
               depositGuarantee: items[16]?.textContent.trim() || '',  // 敷金／保証金
               keyMoneyRights: items[22]?.textContent.trim() || '',    // 礼金／権利金
+              // 広さ（土地面積は賃貸だと「-」なので、行の中の最初の ㎡ が使用部分の面積）。同じ建物の部屋を3部屋までにするのに使う
+              areaText: ((row.textContent || '').replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).match(/(\d+(?:\.\d+)?)\s*(?:㎡|m²|m2)/) || [])[1] || '',
               text: row.textContent.substring(0, 200)
             });
           });
@@ -6675,6 +6677,13 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (globalThis._suumoPatrolSeenKeys[earlyKey]) {
         continue;
       }
+    }
+
+    // 同じ建物・同じ広さ・同じ階の区分はもう3部屋ある → 詳しく見ない（2026-10-13）
+    if (!globalThis._suumoPatrolMode && globalThis.__sbShouldSkip && result.areaText
+        && globalThis.__sbShouldSkip(customer.name, { building_name: result.buildingName, area: result.areaText, floor: result.floor, room_id: result.propertyNumber })) {
+      await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 同じ建物・同じ広さはもう3部屋` });
+      continue;
     }
 
     totalDetailCount++;
