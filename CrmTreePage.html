@@ -1319,7 +1319,10 @@
       if (sc.k === '新着' || sc.k === '候補') {
         var tabK = sc.k === '新着' ? 'new' : 'cand';
         var allOn = list.every(function (p) { return x.pick[p.roomId]; });
-        h += '<div class="pl" style="margin:2px 0"><a href="#" onclick="pickAllIn(\'' + tabK + '\',' + (allOn ? 'false' : 'true') + ');return false">' + (allOn ? sc.k + 'を全部外す' : sc.k + 'を全部選ぶ') + '</a>'
+        // 「全部選ぶ」は、いま出ている物件だけ（絞り込み中は当たった物件だけ）
+        var shownIds = esc(JSON.stringify(list.map(function (p) { return p.roomId; })));
+        var lbl = (pq ? '表示中の' : '') + sc.k + 'を全部' + (allOn ? '外す' : '選ぶ') + (pq ? '（' + list.length + '件）' : '');
+        h += '<div class="pl" style="margin:2px 0"><a href="#" onclick="pickList(' + shownIds + ',' + (allOn ? 'false' : 'true') + ');return false">' + lbl + '</a>'
           + (tabK === 'new' ? ' <span class="meta">⚠の付いた物件は後ろにまとめています</span>' : '') + '</div>';
         h += list.map(function (p) { return propRow(p, tabK, c, x, watching); }).join('');
       } else if (sc.k === 'キャンセル待ち') {
@@ -1496,6 +1499,11 @@
     call('sendCrmProperties', [name, [rid], ''], '送りました');
   }
   // 新着・候補のタブで全部選ぶ／外す
+  function pickList(ids, on) {
+    var x = extras[selName];
+    ids.forEach(function (k) { if (on) x.pick[k] = true; else delete x.pick[k]; });
+    render();
+  }
   function pickAllIn(tab, on) {
     var c = curCust(), x = extras[c.name];
     (c.pending || []).forEach(function (p) {
