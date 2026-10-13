@@ -584,11 +584,12 @@ async function _checkReinsAvailability(reinsPropNo) {
       target: { tabId: tab.id },
       func: (propNo) => {
         const bodyText = document.body.innerText || '';
-        // 「該当なし」「0件」「検索結果なし」 → closed
-        if (/該当(?:するデータが)?(?:あり|有り)?ません|検索結果が0件|0\s*件/.test(bodyText)) return { status: 'closed', listingStatus: 'REINS掲載なし' };
-        // 詳細ボタンがあれば結果行あり
+        // ⚠️ 先に「結果の行があるか」を見る。以前は「0件」を先に見ていて、ページの中の「10件」「20件」まで
+        //   「0件」と取り違え、掲載中の物件を全部 closed にしていた（2026-10-13 CRMの新着の空室確認）
         const hasDetail = [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '詳細');
         if (hasDetail) return { status: 'reins_listed', listingStatus: 'REINS掲載中' };
+        // 「該当なし」「検索結果が0件」「（数字の続きでない）0件」 → closed
+        if (/該当(?:するデータが)?(?:あり|有り)?ません|検索結果が0件|(?:^|[^\d０-９])[0０]\s*件/.test(bodyText)) return { status: 'closed', listingStatus: 'REINS掲載なし' };
         // 物件番号がページ上に表示されていれば存在
         if (bodyText.indexOf(propNo) >= 0) return { status: 'reins_listed', listingStatus: 'REINS掲載中' };
         // それ以外: 不明 (テーブル未描画など)
@@ -1088,19 +1089,24 @@ async function runPendingChecks(items) {
     if (!f.__availabilityCheckRunning && !f.__periodicCheckRunning) break;
     await new Promise(r => setTimeout(r, 15000));
   }
-  await setStorageData({ debugLog: `[新着の空室確認] ${items.length}件を確かめます` });
+  // サイトごとに分けて、サイト同士は同時に進める（同じサイトの中は今までどおり1件ずつ。サイトごとに専用のタブを使うので取り合わない）
+  const bySite = {};
+  for (const it of items) { const k = _detectSourceFromUrl(it.url) || it.source || '?'; (bySite[k] = bySite[k] || []).push(it); }
+  await setStorageData({ debugLog: `[新着の空室確認] ${items.length}件を確かめます（` + Object.keys(bySite).map(k => k + ' ' + bySite[k].length + '件').join('・') + '・サイトごとに同時）' });
   const results = [];
-  for (const it of items) {
-    try {
-      const res = await checkOneAvailability(it);
-      const status = (res && res.status) || 'unknown';
-      results.push({ customer: it.customer, room_id: it.roomId, status });
-      await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} ${_detectSourceFromUrl(it.url) || it.source} → ${status}` });
-    } catch (e) {
-      results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
-      await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} エラー ${e.message}` });
+  await Promise.allSettled(Object.keys(bySite).map(async (site) => {
+    for (const it of bySite[site]) {
+      try {
+        const res = await checkOneAvailability(it);
+        const status = (res && res.status) || 'unknown';
+        results.push({ customer: it.customer, room_id: it.roomId, status });
+        await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} ${site} → ${status}` });
+      } catch (e) {
+        results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
+        await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} ${site} エラー ${e.message}` });
+      }
     }
-  }
+  }));
   try {
     const r = await gasPost({ action: 'pending_check_result', items: results });
     await setStorageData({ debugLog: `[新着の空室確認] 結果を書きました（${(r && r.n) || 0}件・見送ったへ ${(r && r.moved) || 0}件）` });

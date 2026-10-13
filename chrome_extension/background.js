@@ -2978,9 +2978,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'PENDING_CHECK_ITEMS') {
     const items = Array.isArray(msg.items) ? msg.items : [];
     if (!items.length || typeof runPendingChecks !== 'function') { sendResponse({ started: false }); return; }
-    sendResponse({ started: true });
-    runPendingChecks(items);
-    return;
+    // ⚠️ 物件検索の最中は始めない（同じ専用タブを使うので取り合う）。started:false で返すと、CRMがGASに依頼を置き、検索が終わったあとのポーリングで拾われる
+    getStorageData(['isSearching']).then(({ isSearching }) => {
+      if (isSearching) { sendResponse({ started: false, busy: true }); return; }
+      sendResponse({ started: true });
+      runPendingChecks(items);
+    });
+    return true;
   }
   // CRMの「空室を確かめる」（同じPC）: 確かめ待ちを取りに行って、すぐ確かめる
   if (msg.type === 'PENDING_CHECK_NOW') {

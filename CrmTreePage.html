@@ -1519,14 +1519,14 @@
       return { customer: name, roomId: p.roomId, url: p.url, source: '', reinsPropNo: m ? m[1] : '' };
     });
     var done = false;
-    var viaGas = function () {
-      Q().withSuccessHandler(function (d) { applyResult(d); render(); toast((d.savedMessage || '空室を確かめます') + '（PCの拡張が始めます）'); })
+    var viaGas = function (busy) {
+      Q().withSuccessHandler(function (d) { applyResult(d); render(); toast((d.savedMessage || '空室を確かめます') + (busy ? '（いま物件検索中なので、終わったら始めます）' : '（PCの拡張が始めます）')); })
         .withFailureHandler(function (e) { toast('頼めませんでした: ' + e.message); }).setCrmPendingCheck(name, ids);
     };
     pcheckAck = function (a) {
       if (done) return; done = true; pcheckAck = null;
       if (a.started) toast(items.length + '件の空室を確かめ始めました。終わると、申込あり・募集終了の物件は「見送った」に移ります');
-      else viaGas();
+      else viaGas(a.busy);
     };
     try { window.postMessage({ type: 'PENDING_CHECK_ITEMS', items: items }, '*'); } catch (e) {}
     setTimeout(function () { if (!done) { done = true; pcheckAck = null; viaGas(); } }, 1500);

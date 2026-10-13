@@ -793,10 +793,31 @@ function recordCrmPendingCheck_(items) {
   return { ok: true, n: rows.length, moved: moved };
 }
 
+/**
+ * 【GASエディタで実行: CrmSend.gs】2026-10-13 の誤判定の後始末。新着の空室確認で REINS の物件が「募集終了」になって
+ * 見送ったへ移った分を、新着に戻す（確かめた結果も消す）。
+ */
+function undoCrmPendingCheckReinsClosed() {
+  var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, 11).getValues(), rows = [];
+  for (var i = 0; i < data.length; i++) {
+    var js = {}; try { js = JSON.parse(String(data[i][9] || '{}')); } catch (e) { continue; }
+    var a = js.avail_check;
+    var isReins = String(js.source || '') === 'reins' || !!String(js.reins_property_number || '');
+    if (!a || a.s !== 'closed' || !isReins) continue;
+    delete js.avail_check;
+    sh.getRange(i + 2, 10).setValue(JSON.stringify(js));
+    if (String(data[i][10]) === 'skipped') updatePendingStatus(i + 2, 'pending', '');
+    rows.push(i + 2);
+  }
+  try { if (rows.length) cfSyncRows(PENDING_SHEET_NAME, rows, '空室確認の取り消し'); } catch (eCf) {}
+  console.log('新着に戻した REINS の物件: ' + rows.length + '件');
+}
+
 /** 画面に出す札（J列の avail_check から） */
 function _crmAvailTag_(js) {
   var a = js && js.avail_check; if (!a) return '';
-  var L = { available: '✓ 空室', applied: '申込あり', closed: '募集終了', unknown: '? 確認できず' };
+  var L = { available: '✓ 空室', reins_listed: '✓ REINS掲載中', applied: '申込あり', closed: '募集終了', unknown: '? 確認できず' };
   return (L[a.s] || ('? ' + a.s)) + ' ' + (a.at || '') + '確認';
 }
 
