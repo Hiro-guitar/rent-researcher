@@ -662,6 +662,7 @@ function _crmTreeForPage_(only) {
   var cands = (typeof _crmCandidatesAll_ === 'function') ? _crmCandidatesAll_() : {};
   var pstat = (typeof _crmPropStatusAll_ === 'function') ? _crmPropStatusAll_() : {};
   var recs = _crmRecommendsAll_();
+  var runsToday = _crmSearchRunsToday_();
   var page = {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -678,6 +679,7 @@ function _crmTreeForPage_(only) {
           .sort(function (a, b) { return (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0; }),
         watch: watch[c.name] || [],
         pstat: pstat[c.name] || {},
+        searchToday: runsToday[c.name] || null,   // 今日の検索 { n, last, found }
         recs: (c.stageId !== 'ended' && c.stageId !== 'won') ? (recs[c.name] || []) : [],   // おすすめ条件   // 物件ごとの検討状況（roomId → { s: 段階, w: 内見の日時, m: メモ }）
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
@@ -1394,6 +1396,59 @@ function _crmLineChatUrls_(ss) {
     if (sh && sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
       var n = String(r[0] || '').trim(), chat = String(r[1] || '').trim(), bot = String(r[2] || '').trim();
       if (n && chat && bot) out[n] = 'https://chat.line.biz/' + bot + '/chat/' + chat;
+    });
+  } catch (e) {}
+  return out;
+}
+
+// ── 今日の検索回数（2026-10-13）──
+var CRM_SEARCH_RUNS_SHEET = '検索回数';   // A=日付(yyyy-MM-dd) B=顧客名 C=回数 D=最後に検索した時刻 E=その日の新着の件数
+var CRM_SEARCH_RUNS_KEEP_D = 8;
+
+/** 拡張から: [{ name, found }]。日付と顧客ごとに1行、回数を足す。古い日の行は消す。 */
+function recordCrmSearchRuns_(runs) {
+  if (!Array.isArray(runs) || !runs.length) return { ok: true, n: 0 };
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); } catch (eL) { return { ok: false, error: 'busy' }; }
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sh = ss.getSheetByName(CRM_SEARCH_RUNS_SHEET);
+    if (!sh) { sh = ss.insertSheet(CRM_SEARCH_RUNS_SHEET); sh.appendRow(['日付', '顧客名', '回数', '最後', '新着の件数']); sh.getRange('A:A').setNumberFormat('@'); }
+    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
+    var vals = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues() : [];
+    var rowOf = {}, touched = [];
+    var dOf = function (v) { return (v instanceof Date) ? Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd') : String(v || ''); };
+    vals.forEach(function (r, i) { if (dOf(r[0]) === today) rowOf[String(r[1]).trim()] = i + 2; });
+    runs.forEach(function (x) {
+      var n = String(x && x.name || '').trim(); if (!n) return;
+      var found = Number(x.found) || 0, row = rowOf[n];
+      if (row) {
+        var cur = sh.getRange(row, 3, 1, 3).getValues()[0];
+        sh.getRange(row, 3, 1, 3).setValues([[(Number(cur[0]) || 0) + 1, now, (Number(cur[2]) || 0) + found]]);
+      } else { sh.appendRow([today, n, 1, now, found]); row = rowOf[n] = sh.getLastRow(); }
+      touched.push(row);
+    });
+    // 古い日の行を消す（上から並んでいるので、古いものは上にまとまっている）
+    var cut = Utilities.formatDate(new Date(Date.now() - CRM_SEARCH_RUNS_KEEP_D * 86400000), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var old = 0; while (old < vals.length && dOf(vals[old][0]) < cut) old++;
+    if (old > 0) { sh.deleteRows(2, old); try { cfSyncSheet(CRM_SEARCH_RUNS_SHEET, '検索回数'); } catch (eCf) {} }
+    else { try { cfSyncRows(CRM_SEARCH_RUNS_SHEET, touched, '検索回数'); } catch (eCf2) {} }
+    return { ok: true, n: touched.length };
+  } finally { lock.releaseLock(); }
+}
+
+/** 顧客名 → { n: 今日の回数, last: 'HH:mm', found: 今日の新着の件数 } */
+function _crmSearchRunsToday_() {
+  var out = {};
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRM_SEARCH_RUNS_SHEET);
+    if (!sh || sh.getLastRow() < 2) return out;
+    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().forEach(function (r) {
+      var d = (r[0] instanceof Date) ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[0]);
+      var t = (r[3] instanceof Date) ? Utilities.formatDate(r[3], 'Asia/Tokyo', 'HH:mm') : String(r[3] || '');
+      if (d === today) out[String(r[1]).trim()] = { n: Number(r[2]) || 0, last: t, found: Number(r[4]) || 0 };
     });
   } catch (e) {}
   return out;

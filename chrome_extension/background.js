@@ -5900,6 +5900,14 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
 
     }
 
+    // CRMの「今日の検索 ◯回」用: 検索した人と、新しく見つかった件数をGASに1回だけ送る（2026-10-13）
+    try {
+      const _runs = {};
+      criteria.forEach(c => { if (c && c.name) _runs[c.name] = discordPropertyCounters[c.name] || 0; });
+      const _list = Object.keys(_runs).map(n => ({ name: n, found: _runs[n] }));
+      if (_list.length) gasPost({ action: 'record_search_runs', runs: _list }).catch(e => console.warn('[検索回数] 送れません: ' + e.message));
+    } catch (eRuns) { console.warn('[検索回数] ' + eRuns.message); }
+
     // 顧客ごとに投げておいた最終検索日の更新を、ここで必ず完了させる
     if (_searchDateUpdates.length > 0) {
       await Promise.allSettled(_searchDateUpdates);

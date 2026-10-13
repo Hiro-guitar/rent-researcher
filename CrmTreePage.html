@@ -335,6 +335,7 @@
     var m = [];
     if (c.callSlots && (c.node === 'callQueue' || c.node === 'callWait')) m.push('架電 ' + c.callSlots);
     else if (c.failedCalls && !c.hasCriteria) m.push('つながらず' + c.failedCalls + '回');   // 条件登録済みの人には要らない
+    if (c.hasCriteria) m.push(c.searchToday ? '🔍今日の検索 ' + c.searchToday.n + '回（最後 ' + c.searchToday.last + '・新着 ' + c.searchToday.found + '件）' : '🔍今日はまだ検索していません');
     if (c.daysSinceOut !== null && c.daysSinceOut !== undefined) m.push('最後にこちらから連絡 ' + (c.daysSinceOut ? c.daysSinceOut + '日前' : '今日'));
     if (c.moveIn) m.push('引越し希望日 ' + c.moveIn);
     if (c.endWhy) m.push('終了: ' + c.endWhy);
