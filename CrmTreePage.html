@@ -1685,7 +1685,17 @@
     if (c.email) lines.push('EMAIL:' + q(c.email));
     lines.push('NOTE:' + q('えほうまき お客様・' + todayYmd().replace(/-/g, '/') + ' に登録' + (inq ? '（' + (inq.date ? inq.date + ' ' : '') + (inq.property ? '問い合わせ: ' + inq.property : '') + '）' : '')));
     lines.push('END:VCARD');
-    var blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/vcard;charset=utf-8' });
+    var vcf = lines.join('\r\n') + '\r\n';
+    // Cloudflare版: いったんサーバーに送り返して、本物のURLとして開く（iPhoneで「新規連絡先を作成」が出る）
+    if (/workers\.dev$/.test(location.hostname)) {
+      var fm = document.createElement('form');
+      fm.method = 'POST'; fm.action = '/api/vcard'; fm.target = '_blank'; fm.style.display = 'none';
+      var inp = document.createElement('input'); inp.type = 'hidden'; inp.name = 'vcf'; inp.value = vcf; fm.appendChild(inp);
+      document.body.appendChild(fm); fm.submit(); setTimeout(function () { fm.remove(); }, 3000);
+      toast('連絡先を開きました。下の「新規連絡先を作成」を押してください');
+      return;
+    }
+    var blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = name.replace(/[\\/:*?"<>|]/g, '') + '.vcf';
     document.body.appendChild(a); a.click();

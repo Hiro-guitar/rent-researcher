@@ -151,6 +151,16 @@ export default {
       return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
     }
 
+    // 電話帳に入れる: 画面が作った連絡先（vCard）をそのまま返す。iPhone は本物のURLから開いたときだけ「新規連絡先を作成」を出す
+    // （手元で作ったファイルを開くと、見るだけの画面になり ✓ を押しても追加されなかった 2026-10-13）。
+    // ⚠️ 名前・電話番号はURLに載せない（POST の本文で受け取る）
+    if (path === '/api/vcard' && req.method === 'POST') {
+      const form = await req.formData();
+      const v = String(form.get('vcf') || '');
+      if (!/^BEGIN:VCARD/.test(v) || v.length > 4000) return json({ ok: false, error: 'bad vcard' }, 400);
+      return new Response(v, { headers: { 'content-type': 'text/x-vcard; charset=utf-8', 'content-disposition': 'inline; filename="contact.vcf"', 'cache-control': 'no-store' } });
+    }
+
     // 写真を回すときに、よそのサイトの写真をこの画面から読めるように中継する（そのままだとブラウザが読ませてくれない）。
     // 画像だけ通す。中身はそのまま流す（CPUを使わない）
     if (path === '/api/img') {
