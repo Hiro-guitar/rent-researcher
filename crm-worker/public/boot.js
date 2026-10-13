@@ -244,6 +244,9 @@
       var bm = document.getElementById('bootMsg'); if (bm) bm.remove();
       // 古い覚えで開いた場合は、新しい値が届いたら入れ替える
       if (consts) constsP.then(function (c2) {
+        // ⚠️ 路線・駅などの一覧が変わっていたら（例: 2026-10-13 みなとみらい線を追加）、新しい一覧で開き直す。
+        //   覚えている古い一覧のままだと、条件の画面に新しい路線が出なかった
+        try { if (JSON.stringify(c2) !== JSON.stringify(consts) && !sessionStorage.getItem('constsReloaded')) { sessionStorage.setItem('constsReloaded', '1'); location.reload(); return; } } catch (eR) {}
         window.customerPageUrl = c2.customerPageUrl; window.adminUrl = c2.adminUrl; window.approveBaseUrl = c2.approveBaseUrl; window.mobileSearchUrl = c2.mobileSearchUrl;
       }, function () {});
     }).catch(function (e) { say('開けませんでした: ' + e.message); console.error(e); });
