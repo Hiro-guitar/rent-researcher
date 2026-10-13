@@ -195,7 +195,7 @@ function setCrmSearchNow(customerName) {
   if (!customerName) throw new Error('お客様が分かりません');
   var props = PropertiesService.getScriptProperties();
   var cur = null; try { cur = JSON.parse(props.getProperty(MOBILE_SEARCH_KEY) || 'null'); } catch (e) {}
-  var keys = [customerName];
+  var keys = ['all::' + customerName];   // 本人の条件＋おすすめ条件を全部（拡張の runSearchCycle が all:: を解く）
   if (cur && cur.status === 'pending') {
     if (cur.mode === 'all') keys = [];   // もう全員分の指示が待っている
     else (cur.keys || []).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); });

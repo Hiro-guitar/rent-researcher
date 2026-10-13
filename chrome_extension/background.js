@@ -2714,7 +2714,7 @@ async function pollMobileSearchRequest() {
           if (k) byKey[k] = c && c.recommend
             ? `${c.name}（おすすめ: ${c.recommendLabel || ''}）` : (c ? c.name : k);
         });
-        names = req.keys.map(k => byKey[k] || k);
+        names = req.keys.map(k => byKey[k] || (String(k).indexOf('all::') === 0 ? String(k).slice(5) + '（おすすめ条件も）' : k));
       } catch (e) { names = req.keys.slice(); }
     }
     await notifyMobileSearchStarted(req, names);
@@ -5510,7 +5510,8 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     let _selected;
     if (Array.isArray(onlyKeys) && onlyKeys.length) {
       // スマホからの指示。除外リストは無視して、指定された顧客だけ回す。
-      _selected = allCriteria.filter(c => onlyKeys.includes(_critKey(c)));
+      // all::名前 はその人の条件を全部（本人の条件＋こちらで登録したおすすめ条件）。CRMの「今すぐ検索」から来る（2026-10-13）
+      _selected = allCriteria.filter(c => onlyKeys.includes(_critKey(c)) || (c && onlyKeys.includes('all::' + c.name)));
       await setStorageData({
         debugLog: '[スマホ] 指定された ' + _selected.length + '件だけ検索します: '
           + _selected.map(c => c.name).join('、')

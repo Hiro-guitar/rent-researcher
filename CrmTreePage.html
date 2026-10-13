@@ -1545,7 +1545,8 @@
       if (a.started) toast(name + 'さんの検索を始めました（結果は新着とDiscordに入ります）');
       else viaGas('いまほかの検索が動いているので、終わったら始めます');
     };
-    try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: [name] }, '*'); } catch (e) {}
+    // all::名前 … 本人の条件だけでなく、こちらで登録したおすすめ条件もいっしょに検索する
+    try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: ['all::' + name] }, '*'); } catch (e) {}
     setTimeout(function () { if (!done) { done = true; searchAck = null; viaGas('このPCの拡張が見つからないので、PCの拡張に頼みます'); } }, 1500);
   }
   function lineOnlyEnd(name, uid, ended) {
