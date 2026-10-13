@@ -568,7 +568,7 @@
         props.setAttribute('data-cust', c.name);
         props.innerHTML = '<div class="where">' + esc(c.name) + ' さんに送る</div>'
           + '<input class="inp pq" id="pq" placeholder="🔍 物件名・駅・間取りで絞る（例: 武蔵小杉、1LDK）" value="' + esc((extras[c.name] || {}).pq || '') + '"'
-          + ' oninput="if(!event.isComposing)pqSet(this.value)" oncompositionend="pqSet(this.value)" autocomplete="off">'
+          + ' oninput="pqSet(this.value)" oncompositionend="pqSet(this.value)" autocomplete="off">'
           + '<div id="propsBody"></div>';
       }
       document.getElementById('propsBody').innerHTML = sendHtml(c);
@@ -1165,7 +1165,7 @@
   function toggleMenu2(rid) { var x = extras[selName]; x.menuOf = (x.menuOf === rid) ? '' : rid; render(); }
   function toggleWarn(rid) { var x = extras[selName]; x.warnOf = (x.warnOf === rid) ? '' : rid; render(); }
   function setTab(t) { extras[selName].tab = t; render(); }
-  // 物件の絞り込み: 打つたびに組み立て直し、欄にカーソルを戻す（日本語の変換中は待つ）
+  // 物件の絞り込み: 打つたびに一覧だけ組み立て直す（欄は作り直さないので、日本語の変換中でも絞れる）
   function pqNorm(v) { return String(v || '').normalize('NFKC').toLowerCase().replace(/[\s　・\-－ー]/g, ''); }
   function pqSet(v) {
     var x = extras[selName]; if (!x) return;
