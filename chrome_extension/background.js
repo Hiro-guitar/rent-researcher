@@ -2974,6 +2974,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
+  // CRMの「空室を確かめる」（同じPC・物件をそのまま受け取る）: その場で始める
+  if (msg.type === 'PENDING_CHECK_ITEMS') {
+    const items = Array.isArray(msg.items) ? msg.items : [];
+    if (!items.length || typeof runPendingChecks !== 'function') { sendResponse({ started: false }); return; }
+    sendResponse({ started: true });
+    runPendingChecks(items);
+    return;
+  }
   // CRMの「空室を確かめる」（同じPC）: 確かめ待ちを取りに行って、すぐ確かめる
   if (msg.type === 'PENDING_CHECK_NOW') {
     gasGet('pending_check_poll', {}).then(r => {

@@ -1506,15 +1506,30 @@
   }
   // 新着・候補のタブで全部選ぶ／外す
   // 新着の空室を確かめる。依頼を置いたら、このPCの拡張にすぐ取りに行かせる（スマホなら1分以内に拡張が拾う）
+  // ⚠️ このPCの拡張には、GASを通さずに物件をそのまま渡して、その場で始める（2026-10-13 すぐ始まるように）。
+  //   拡張がいない（スマホ）・答えが無いときだけ、GASに依頼を置いて拡張に拾ってもらう
+  var pcheckAck = null;
+  window.addEventListener('message', function (ev) { if (ev.data && ev.data.type === 'PENDING_CHECK_ACK' && pcheckAck) pcheckAck(ev.data); });
   function pendingCheck(ids) {
     if (!ids.length) return;
     if (ids.length > 30 && !confirm(ids.length + '件の空室を確かめます。サイトを1件ずつ見るので、少し時間がかかります。よろしいですか？')) return;
-    var name = selName;
-    toast(ids.length + '件の空室確認を頼んでいます…');
-    Q().withSuccessHandler(function (d) {
-      applyResult(d); render(); toast((d.savedMessage || '空室を確かめます') + '。終わると、申込あり・募集終了の物件は「見送った」に移ります');
-      try { window.postMessage({ type: 'PENDING_CHECK_REQUESTED' }, '*'); } catch (e) {}
-    }).withFailureHandler(function (e) { toast('頼めませんでした: ' + e.message); }).setCrmPendingCheck(name, ids);
+    var name = selName, c = custOf(name), set = {}; ids.forEach(function (k) { set[k] = true; });
+    var items = (c.pending || []).filter(function (p) { return set[p.roomId] && p.url; }).map(function (p) {
+      var m = String(p.url).match(/bukken=(\d+)/);
+      return { customer: name, roomId: p.roomId, url: p.url, source: '', reinsPropNo: m ? m[1] : '' };
+    });
+    var done = false;
+    var viaGas = function () {
+      Q().withSuccessHandler(function (d) { applyResult(d); render(); toast((d.savedMessage || '空室を確かめます') + '（PCの拡張が始めます）'); })
+        .withFailureHandler(function (e) { toast('頼めませんでした: ' + e.message); }).setCrmPendingCheck(name, ids);
+    };
+    pcheckAck = function (a) {
+      if (done) return; done = true; pcheckAck = null;
+      if (a.started) toast(items.length + '件の空室を確かめ始めました。終わると、申込あり・募集終了の物件は「見送った」に移ります');
+      else viaGas();
+    };
+    try { window.postMessage({ type: 'PENDING_CHECK_ITEMS', items: items }, '*'); } catch (e) {}
+    setTimeout(function () { if (!done) { done = true; pcheckAck = null; viaGas(); } }, 1500);
   }
   function pickList(ids, on) {
     var x = extras[selName];

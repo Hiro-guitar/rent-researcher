@@ -42,6 +42,15 @@
         });
         return;
       }
+      // CRMの「空室を確かめる」（同じPC）: 物件をそのまま渡して、すぐ始める
+      if (d && d.type === 'PENDING_CHECK_ITEMS' && Array.isArray(d.items)) {
+        var its = d.items.filter(function (x) { return x && typeof x.url === 'string' && x.customer && x.roomId; }).slice(0, 100);
+        chrome.runtime.sendMessage({ type: 'PENDING_CHECK_ITEMS', items: its }, function (res) {
+          void chrome.runtime.lastError;
+          try { window.postMessage({ type: 'PENDING_CHECK_ACK', started: !!(res && res.started) }, '*'); } catch (e) {}
+        });
+        return;
+      }
       // CRMの「空室を確かめる」: 拡張にすぐ取りに行かせる
       if (d && d.type === 'PENDING_CHECK_REQUESTED') { chrome.runtime.sendMessage({ type: 'PENDING_CHECK_NOW' }, function () { void chrome.runtime.lastError; }); return; }
       // CRMでLINEとつないだ・名前を変えた: LINE Chat の名前の付け替えをすぐやり直す（2026-10-13）
