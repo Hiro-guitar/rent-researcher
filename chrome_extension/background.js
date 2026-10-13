@@ -5529,6 +5529,12 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     // log.html の顧客フィルタの表示順とも一致するようになる。
     // 順番は「絞り込む前の全条件」基準で決める（本人OFF＋おすすめONのお客さんが飛ばないように）
     const criteria = groupCriteriaByCustomer(_selected, allCriteria);
+    // 4サイトを同時に進めるか（既定はする。log.html などで parallelServices=false にすると順番に戻る）
+    {
+      const { parallelServices } = await getStorageData(['parallelServices']);
+      globalThis._parallelCycle = parallelServices !== false;
+      await setStorageData({ debugLog: globalThis._parallelCycle ? '[system] 4サイトを同時に検索します' : '[system] サイトを順番に検索します' });
+    }
     if (criteria.length === 0) {
       await setStorageData({ debugLog: '選択された顧客がありません' });
       return;
@@ -5703,6 +5709,11 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
         debugLog: `━━ 顧客 ${ci+1}/${criteria.length}: ${customer.name} ━━`
       });
 
+      // ── 4サイトを同時に進める（2026-10-13）。お客様1人ごとに、全部終わってから次の人へ ──
+      //   ⚠️ 結果はいったん貯めて（deliverProperty が _parallelCycle で一括モードと同じく貯める）、4サイト終わってから重なりを除いて通知する。
+      //   REINS は本来「他サイトで申込あり」を見てから判定するため最後だった。同時に進めるので、通知の前（flush）にもう一度その印で落とす。
+      const _svcTasks = [];
+      _svcTasks.push(async () => {
       // --- itandi ---
       if (services.itandi) {
         if (isSearchCancelled(searchId)) return;
@@ -5710,6 +5721,8 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
         catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[itandi] 検索エラー: ' + err.message); }
       }
 
+      });
+      _svcTasks.push(async () => {
       // --- ES-Square (恒久停止: 2026-06-03 規約違反BANのため。services.essquare は上流で常にfalse) ---
       if (services.essquare) {
         if (isSearchCancelled(searchId)) return;
@@ -5717,6 +5730,8 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
         catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[ES-Square] 検索エラー: ' + err.message); }
       }
 
+      });
+      _svcTasks.push(async () => {
       // --- いえらぶ ---
       if (services.ielove) {
         // 駐車場あり顧客は pkcd=1(空有) と pkcd=3(近隣) の2パス検索（REINSと同方式）。
@@ -5733,15 +5748,8 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
         }
       }
 
-      // --- キャンセル待ち物件の募集状況チェック（この顧客の監視物件・担当にだけ通知） ---
-      // 1サイクル中は顧客ごとに1回だけ（メイン条件+おすすめ条件で重複実行しない）
-      if (typeof checkCustomerCancellationWatches === 'function' && !watchCheckedCustomers.has(customer.name)) {
-        if (isSearchCancelled(searchId)) return;
-        watchCheckedCustomers.add(customer.name);
-        try { await checkCustomerCancellationWatches(customer.name, searchId); }
-        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[キャンセル待ち確認] ' + err.message); }
-      }
-
+      });
+      _svcTasks.push(async () => {
       // --- REINS（他サイトで申込あり検出後に判定するため最後に実行） ---
       if (services.reins && reinsTab && !reinsFatalExit) {
         const cond = formatCustomerCriteria(customer);
@@ -5883,8 +5891,25 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
         }
       }
 
-      // --- 一括モード: この顧客分だけ重複排除＆通知 ---
-      if (notifyMode === 'batch') {
+      });
+      if (globalThis._parallelCycle) {
+        await Promise.allSettled(_svcTasks.map(f => f()));
+      } else {
+        for (const f of _svcTasks) await f();
+      }
+      if (isSearchCancelled(searchId)) return;
+
+      // --- キャンセル待ち物件の募集状況チェック（この顧客の監視物件・担当にだけ通知） ---
+      // 1サイクル中は顧客ごとに1回だけ（メイン条件+おすすめ条件で重複実行しない）
+      if (typeof checkCustomerCancellationWatches === 'function' && !watchCheckedCustomers.has(customer.name)) {
+        if (isSearchCancelled(searchId)) return;
+        watchCheckedCustomers.add(customer.name);
+        try { await checkCustomerCancellationWatches(customer.name, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[キャンセル待ち確認] ' + err.message); }
+      }
+
+      // --- 一括モード（または4サイト同時）: この顧客分だけ重複排除＆通知 ---
+      if (notifyMode === 'batch' || globalThis._parallelCycle) {
         try { await flushBatchBufferForCustomer(customer.name); }
         catch (err) { logError(`[system] ${customer.name}: 一括通知エラー: ${err.message}`); }
       }
@@ -5935,6 +5960,7 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     logError('検索サイクルエラー: ' + err.message);
   } finally {
     clearInterval(globalKeepAlive);
+    globalThis._parallelCycle = false;
     // 検索用の抑制を解いて、営業時間・自動検索の状態に戻す
     __applyKeepAwake();
     // サイクル終了。ここから先はタブを閉じてよい
@@ -8364,7 +8390,7 @@ async function deliverProperty(customerName, prop, customer, service) {
   if (globalThis._suumoPatrolMode) return;
 
   const { notifyMode } = await getStorageData(['notifyMode']);
-  if (notifyMode === 'batch') {
+  if (notifyMode === 'batch' || globalThis._parallelCycle) {   // 4サイト同時のときは必ず貯める（重なり・申込ありを最後にまとめて見る）
     if (!_batchBuffer[customerName]) _batchBuffer[customerName] = [];
     _batchBuffer[customerName].push({ prop, customer, service });
     return;
@@ -8397,8 +8423,22 @@ function _compareDedupCandidates(a, b) {
 // 特定顧客のバッファをフラッシュ（重複排除→通知）
 // 同じ物件が複数サービスから来た場合、画像枚数が多い方を優先 (枚数同じならサービス優先度)。
 async function flushBatchBufferForCustomer(customerName) {
-  const entries = _batchBuffer[customerName];
+  let entries = _batchBuffer[customerName];
   if (!entries || entries.length === 0) return;
+  // 4サイト同時のとき: REINSの物件のうち、同じ回に他のサイトが「申込あり」と判定した部屋は落とす（順番に回していた頃と同じ結果にする）
+  if (globalThis._parallelCycle && !globalThis._suumoPatrolMode && globalThis.__hasMoshikomiKey) {
+    const kept = [];
+    for (const e of entries) {
+      const pb = e.prop && (e.prop.building_name || e.prop.buildingName), pr = e.prop && (e.prop.room_number || e.prop.roomNumber);
+      if (e.service === 'reins' && globalThis.__hasMoshikomiKey(pb, pr)) {
+        await setStorageData({ debugLog: `[system] ${customerName}: ✗ REINS ${pb || ''} ${pr || ''} は他サイトで申込あり → 通知しない` });
+        continue;
+      }
+      kept.push(e);
+    }
+    entries = kept;
+    if (!entries.length) { delete _batchBuffer[customerName]; return; }
+  }
   const byKey = new Map();
   const noKey = [];
   const dropped = []; // 重複として除外されたもの（ログ用）
