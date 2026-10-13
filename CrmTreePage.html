@@ -375,8 +375,10 @@
       : '<a target="_blank" href="' + esc(customerPageUrl + '&customer=' + encodeURIComponent(c.name)) + '">' + esc(c.name) + '</a>';
     var tel = c.phone ? ' <a class="meta" href="tel:' + esc(c.phone) + '">📞 ' + esc(c.phone) + '</a>' : '';
     var pen = c.lineOnly ? '' : ' <button class="pen" title="名前を変える" onclick="renameAsk(' + esc(JSON.stringify(c.name)) + ')">✏️</button>';
+    // 電話帳に入れる（スマホ向け）: 連絡先のファイル（vCard）を作って開く。電話番号かメールがある人だけ
+    var vc = (!c.lineOnly && (c.phone || c.email)) ? ' <a class="meta" href="#" onclick="addToContacts(' + esc(JSON.stringify(c.name)) + ');return false">📇 電話帳に入れる</a>' : '';
     var chat = c.lineChatUrl ? ' <a class="meta" target="_blank" href="' + esc(c.lineChatUrl) + '">💬 LINEのトーク</a>' : '';
-    var h = '<div class="cust"><div class="name">' + name + pen + tel + chat + '</div>';
+    var h = '<div class="cust"><div class="name">' + name + pen + tel + chat + vc + '</div>';
     if (c.note) h += '<div class="note">' + esc(c.note) + '</div>';
     if (c.viewNote) h += '<div class="meta">👀 ' + esc(c.viewNote) + '</div>';
     var meta = metaOf(c);
@@ -1667,6 +1669,27 @@
     // all::名前 … 本人の条件だけでなく、こちらで登録したおすすめ条件もいっしょに検索する
     try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: names.map(function (n) { return 'all::' + n; }) }, '*'); } catch (e) {}
     setTimeout(function () { if (!done) { done = true; searchAck = null; viaGas('このPCの拡張が見つからないので、PCの拡張に頼みます'); } }, 1500);
+  }
+  // ⚠️ 名前・電話番号はURLに載せない（ファイルを手元で作って開く）
+  function addToContacts(name) {
+    var c = custOf(name); if (!c) return;
+    var q = function (v) { return String(v || '').replace(/[\\;,]/g, function (m) { return '\\' + m; }).replace(/\n/g, '\\n'); };
+    var parts = String(name).split(/[\s　]+/);
+    var inq = (c.inquiries || [])[0];
+    var lines = ['BEGIN:VCARD', 'VERSION:3.0',
+      'N:' + q(parts[0]) + ';' + q(parts.slice(1).join(' ')) + ';;;',
+      'FN:' + q(name),
+      'ORG:' + q('えほうまき お客様')];
+    if (c.phone) lines.push('TEL;TYPE=CELL:' + q(c.phone));
+    if (c.email) lines.push('EMAIL:' + q(c.email));
+    lines.push('NOTE:' + q('えほうまき お客様' + (inq && inq.property ? '（問い合わせ: ' + inq.property + '）' : '')));
+    lines.push('END:VCARD');
+    var blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/vcard;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name.replace(/[\\/:*?"<>|]/g, '') + '.vcf';
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 5000);
+    toast('連絡先のファイルを開きました。「連絡先に追加」を押してください');
   }
   function lineOnlyEnd(name, uid, ended) {
     call('setCrmLineOnlyEnded', [name, uid, ended], ended ? '終了にしました' : '戻しました', function (c) { c.stageId = ended ? 'ended' : 'line'; c.todo = false; });
