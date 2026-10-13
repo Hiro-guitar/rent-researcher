@@ -28,7 +28,7 @@ async function isSync(req, env) {
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -143,12 +143,19 @@ export default {
       const key = cookieOf(req, 'crm_key');
       // GAS は答えを googleusercontent に置いて 302 で返す。POST のまま追うと失敗するので、転送先は GET で取りに行く
       const body = await req.text();
-      const r1 = await fetch(env.GAS_URL + '?action=crm_call&key=' + encodeURIComponent(key), {
-        method: 'POST', body, headers: { 'content-type': 'text/plain' }, redirect: 'manual',
-      });
-      const loc = r1.headers.get('location');
-      const r = loc ? await fetch(loc) : r1;
-      return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
+      // ⚠️ GAS への呼び出しは waitUntil で最後までやり切る。スマホで送信中に Chrome を閉じる・別のアプリに移ると、
+      //   画面との接続が切れて、ここでの処理ごと止められることがある（2026-10-13）。GAS に届けば GAS 側は最後まで動く
+      const job = (async () => {
+        const r1 = await fetch(env.GAS_URL + '?action=crm_call&key=' + encodeURIComponent(key), {
+          method: 'POST', body, headers: { 'content-type': 'text/plain' }, redirect: 'manual',
+        });
+        const loc = r1.headers.get('location');
+        const r = loc ? await fetch(loc) : r1;
+        return { status: r.status, text: await r.text() };
+      })();
+      if (ctx && ctx.waitUntil) ctx.waitUntil(job.catch(() => {}));
+      const out = await job;
+      return new Response(out.text, { status: out.status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
     }
 
     // 電話帳に入れる: 画面が作った連絡先（vCard）をそのまま返す。iPhone は本物のURLから開いたときだけ「新規連絡先を作成」を出す
