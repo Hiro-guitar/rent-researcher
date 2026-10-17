@@ -441,7 +441,14 @@
             + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>' : '')
           + (c.stageId !== 'call' ? '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>' : '')
           + '<button class="btn" title="今日だけ黒くする（明日また赤くなる）" onclick="next(' + n + ',1)">⚫ 今日はいい</button>'
-          + (c.hasCriteria ? '<button class="btn" title="登録している条件で、今すぐ4サイトを検索します（PCのChrome拡張が動かします）" onclick="searchNow(' + n + ')">🔍 今すぐ検索</button>' : '')
+          + (c.hasCriteria ? '<button class="btn" title="登録している条件で、今すぐ4サイトを検索します（PCのChrome拡張が動かします）" onclick="' + ((c.recs || []).length ? 'extras[selName].searchMenu=!extras[selName].searchMenu;render()' : 'searchNow(' + n + ')') + '">🔍 今すぐ検索</button>' : '')
+          // おすすめ条件がある人は、どの条件で検索するか選ぶ（全部／本人の条件だけ／おすすめ条件1つずつ）
+          + (c.hasCriteria && (c.recs || []).length && (extras[c.name] || {}).searchMenu ? '<div class="acts" style="width:100%">'
+            + '<button class="btn" onclick="searchNow(' + n + ',[\'all::\'+' + n + '])">全部の条件</button>'
+            + '<button class="btn" onclick="searchNow(' + n + ',[' + n + '])">登録中の条件だけ</button>'
+            + (c.recs || []).filter(function (r) { return r.id; }).map(function (r) {
+              return '<button class="btn" onclick="searchNow(' + n + ',[\'rec::' + esc(r.id) + '\'])">おすすめ: ' + esc(r.label) + (r.enabled ? '' : '（オフ）') + '</button>';
+            }).join('') + '</div>' : '')
           + '</div><div class="acts small">';
         if (c.stageId === 'ended' || c.stageId === 'won') {
           h += '<button class="btn" onclick="stage(' + n + ',\'\',\'\')">↩ 追客中に戻す</button>';
@@ -1727,12 +1734,14 @@
   //   拡張がいない（スマホなど）・ほかの検索中のときだけ、GASに指示を置いて拡張に拾ってもらう
   var searchAck = null;
   window.addEventListener('message', function (ev) { if (ev.data && ev.data.type === 'SEARCH_NOW_ACK' && searchAck) searchAck(ev.data); });
-  function searchNow(name) {
+  function searchNow(name, keysOpt) {
     var names = Array.isArray(name) ? name : [name], label = names.length > 1 ? names.length + '人' : names[0] + 'さん';
+    var keys = keysOpt || names.map(function (n) { return 'all::' + n; });   // 既定は本人の条件＋おすすめ条件の全部
+    var x0 = extras[selName]; if (x0) x0.searchMenu = false;
     var done = false;
     var viaGas = function (why) {
       Q().withSuccessHandler(function (d) { applyResult(d); render(); toast((why ? why + '。' : '') + (d.savedMessage || '検索を頼みました')); })
-        .withFailureHandler(function (e) { toast('検索を頼めませんでした: ' + e.message); }).setCrmSearchNow(names);
+        .withFailureHandler(function (e) { toast('検索を頼めませんでした: ' + e.message); }).setCrmSearchNow(names, keys);
     };
     searchAck = function (a) {
       if (done) return; done = true; searchAck = null;
@@ -1740,7 +1749,7 @@
       else viaGas('いまほかの検索が動いているので、終わったら始めます');
     };
     // all::名前 … 本人の条件だけでなく、こちらで登録したおすすめ条件もいっしょに検索する
-    try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: names.map(function (n) { return 'all::' + n; }) }, '*'); } catch (e) {}
+    try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: keys }, '*'); } catch (e) {}
     setTimeout(function () { if (!done) { done = true; searchAck = null; viaGas('このPCの拡張が見つからないので、PCの拡張に頼みます'); } }, 1500);
   }
   // ⚠️ 名前・電話番号はURLに載せない（ファイルを手元で作って開く）

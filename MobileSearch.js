@@ -195,13 +195,14 @@ function _mobileSaveRequest_(keys, mode) {
  * CRMの「🔍 今すぐ検索」。その人の登録条件で検索する指示を置く（拡張が1分以内に拾う。CRMを開いているPCならすぐ）。
  * ⚠️ 指示は1件しか持てないので、まだ拾われていない指示があれば、そこに人を足す（上書きすると前の人が消える）。
  */
-function setCrmSearchNow(customerNames) {
+function setCrmSearchNow(customerNames, keysOpt) {
   var list = (Array.isArray(customerNames) ? customerNames : [customerNames]).map(function (n) { return String(n || '').trim(); }).filter(function (n) { return n; });
   if (!list.length) throw new Error('お客様が分かりません');
   var customerName = list[0];
   var props = PropertiesService.getScriptProperties();
   var cur = null; try { cur = JSON.parse(props.getProperty(MOBILE_SEARCH_KEY) || 'null'); } catch (e) {}
-  var keys = list.map(function (n) { return 'all::' + n; });   // 本人の条件＋おすすめ条件を全部（拡張の runSearchCycle が all:: を解く）
+  // 既定は本人の条件＋おすすめ条件を全部（all::）。画面で選んだときは、その条件だけ（名前＝登録中の条件 / rec::ID＝おすすめ条件）
+  var keys = (Array.isArray(keysOpt) && keysOpt.length) ? keysOpt.map(String) : list.map(function (n) { return 'all::' + n; });
   if (cur && cur.status === 'pending') {
     if (cur.mode === 'all') keys = [];   // もう全員分の指示が待っている
     else (cur.keys || []).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); });
