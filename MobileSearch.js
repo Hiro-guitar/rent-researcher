@@ -215,6 +215,25 @@ function setCrmSearchNow(customerNames, keysOpt) {
   return page;
 }
 
+/** 画面: スマホから頼んだ検索の今の状態（受け取ったか・終わったか）。GASのプロパティを読むだけ */
+function getCrmSearchStatus() {
+  var props = PropertiesService.getScriptProperties();
+  var req = null; try { req = JSON.parse(props.getProperty(MOBILE_SEARCH_KEY) || 'null'); } catch (e) {}
+  var seen = Number(props.getProperty(MOBILE_SEARCH_SEEN) || 0);
+  return { req: req, seenMs: seen, seenAgo: _mobileAgo_(seen), now: Date.now() };
+}
+
+/** 拡張から: 頼まれた検索が最後まで終わった */
+function handleSearchRequestFinished(json) {
+  var props = PropertiesService.getScriptProperties();
+  var req = null; try { req = JSON.parse(props.getProperty(MOBILE_SEARCH_KEY) || 'null'); } catch (e) {}
+  if (req && String(req.id) === String(json.id)) {
+    req.status = 'finished'; req.finishedAt = Date.now(); req.found = Number(json.found) || 0;
+    props.setProperty(MOBILE_SEARCH_KEY, JSON.stringify(req));
+  }
+  return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+}
+
 function _mobileAgo_(ms) {
   if (!ms) return '—';
   var d = Date.now() - Number(ms);

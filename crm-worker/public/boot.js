@@ -11,6 +11,7 @@
   // 外で変わったか確かめて、変わっていれば取り込んで組み立て直す（Discordから送った・検索の新着・条件変更・LINEの返信など）
   // ⚠️ 2026-10-09: 開いたままの画面で取り込みが止まっていた。保存待ちが戻らないと止まる作りだったので、
   //   2分以上たった保存待ちは終わったとみなす。タブに戻ったときにもすぐ確かめる。最終更新の時刻を画面に出す
+  window.__checkNow = function (f) { return checkNow(f); };
   function checkNow(force) {
     if (!lastU) return;
     if (inflight > 0) {

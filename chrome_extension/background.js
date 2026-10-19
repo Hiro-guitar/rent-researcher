@@ -2792,6 +2792,7 @@ async function pollMobileSearchRequest() {
       }, { timeoutMs: 30000, label: 'mobile_search_done' });
     } catch (e) {}
 
+    globalThis._mobileReqId = req.id;   // 終わったらGASに「終わった」と返す（CRMの画面に出す）
     await runSearchCycle(isAll ? null : req.keys);
   } catch (e) {
     console.warn('[スマホ検索指示] 取得失敗:', e && e.message);
@@ -6044,6 +6045,12 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
   } finally {
     clearInterval(globalKeepAlive);
     globalThis._parallelCycle = false;
+    // スマホ・CRMから頼まれた検索なら、終わったことをGASに返す（新着の件数つき）
+    if (globalThis._mobileReqId) {
+      const _rid = globalThis._mobileReqId; globalThis._mobileReqId = null;
+      let _found = 0; try { Object.keys(discordPropertyCounters).forEach(k => { _found += discordPropertyCounters[k] || 0; }); } catch (_) {}
+      gasPost({ action: 'search_request_finished', id: _rid, found: _found }).catch(() => {});
+    }
     // 検索用の抑制を解いて、営業時間・自動検索の状態に戻す
     __applyKeepAwake();
     // サイクル終了。ここから先はタブを閉じてよい

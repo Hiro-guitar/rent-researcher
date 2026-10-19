@@ -306,6 +306,7 @@
   <input type="search" id="q" class="search" placeholder="名前で探す" oninput="search()">
   <div class="today" id="today"></div>
   <div class="ttasks" id="todayTasks"></div>
+  <div class="meta" id="searchReq" style="margin:4px 0"></div>
   <div class="mbar" id="mbar"></div>
   <div class="layout">
     <div class="tree" id="tree"></div>
@@ -1168,6 +1169,7 @@
       .getCrmPropListsAll(names);
   }
   setTimeout(prefetchAllLists, 300);
+  setTimeout(watchSearchReq, 2500);   // 開いたときに、頼んである検索があれば進み具合を出す
   // 物件の「⋯」（ほかの操作）と、注意（⚠）の開け閉め
   function toggleMenu2(rid) { var x = extras[selName]; x.menuOf = (x.menuOf === rid) ? '' : rid; render(); }
   function toggleWarn(rid) { var x = extras[selName]; x.warnOf = (x.warnOf === rid) ? '' : rid; render(); }
@@ -1740,7 +1742,7 @@
     var x0 = extras[selName]; if (x0) x0.searchMenu = false;
     var done = false;
     var viaGas = function (why) {
-      Q().withSuccessHandler(function (d) { applyResult(d); render(); toast((why ? why + '。' : '') + (d.savedMessage || '検索を頼みました')); })
+      Q().withSuccessHandler(function (d) { applyResult(d); render(); toast((why ? why + '。' : '') + (d.savedMessage || '検索を頼みました')); watchSearchReq(); })
         .withFailureHandler(function (e) { toast('検索を頼めませんでした: ' + e.message); }).setCrmSearchNow(names, keys);
     };
     searchAck = function (a) {
@@ -1751,6 +1753,28 @@
     // all::名前 … 本人の条件だけでなく、こちらで登録したおすすめ条件もいっしょに検索する
     try { window.postMessage({ type: 'SEARCH_NOW_REQUESTED', keys: keys }, '*'); } catch (e) {}
     setTimeout(function () { if (!done) { done = true; searchAck = null; viaGas('このPCの拡張が見つからないので、PCの拡張に頼みます'); } }, 1500);
+  }
+  // ── スマホから頼んだ検索の進み具合（頼んだ → PCが受け取って開始 → 終わった）。GASに20秒ごとに聞く（データベースは読まない）──
+  var searchReq = null, searchReqTimer = 0;
+  function watchSearchReq() {
+    clearTimeout(searchReqTimer);
+    google.script.run.withSuccessHandler(function (st) {
+      searchReq = st; renderSearchReq();
+      var r = st && st.req;
+      if (r && r.status !== 'finished' && Date.now() - (r.requestedAt || 0) < 3 * 3600000) searchReqTimer = setTimeout(watchSearchReq, 20000);
+      else if (r && r.status === 'finished') { try { if (window.__checkNow) window.__checkNow(true); } catch (e) {} }
+    }).withFailureHandler(function () { searchReqTimer = setTimeout(watchSearchReq, 60000); }).getCrmSearchStatus();
+  }
+  function renderSearchReq() {
+    var el = document.getElementById('searchReq'); if (!el) return;
+    var st = searchReq, r = st && st.req;
+    if (!r || Date.now() - (r.finishedAt || r.requestedAt || 0) > 6 * 3600000) { el.innerHTML = ''; return; }
+    var t = function (ms) { var d = new Date(ms); return d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2); };
+    var who = (r.keys || []).map(function (k) { return String(k).replace(/^all::/, '').replace(/^rec::.*/, 'おすすめ条件'); }).join('・') || 'いつもの全員';
+    var step = r.status === 'finished' ? '✓ 終わりました ' + t(r.finishedAt) + (typeof r.found === 'number' ? '（新着 ' + r.found + '件）' : '')
+      : r.status === 'done' ? '⏳ PCで検索中（' + t(r.doneAt || r.requestedAt) + 'に開始）'
+      : '… PCが受け取るのを待っています（PCが最後に見にきたのは' + esc(st.seenAgo || '—') + '）';
+    el.innerHTML = '🔍 頼んだ検索 ' + t(r.requestedAt) + '：' + esc(who) + ' → ' + step;
   }
   // ⚠️ 名前・電話番号はURLに載せない（ファイルを手元で作って開く）
   function addToContacts(name) {

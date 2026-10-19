@@ -229,7 +229,7 @@ function _cfCrmCallable_() {
     'renameCrmCustomer', 'resendCrmToFamily', 'saveCrmCriteria', 'saveCrmMemo', 'saveCrmPropertyEdit', 'sendCrmProperties',
     'setCrmClosed', 'setCrmGroup', 'setCrmNextContact', 'setCrmStage', 'setCrmWatch', 'skipCrmProperties', 'skipCrmProperty',
     'unlinkCrmFamily', 'unskipCrmProperty', 'uploadPropertyImage', 'getCrmPageConsts', 'setCrmCandidates',
-    'addCrmTask', 'doneCrmTask', 'setCrmTaskDue', 'deleteCrmTask', 'setCrmTaskOwner', 'setCrmViewingWish', 'setCrmMailStop', 'setCrmLineOnlyEnded', 'setCrmPropStatus', 'setCrmSearchNow', 'saveCrmRecommend', 'setCrmRecommendEnabled', 'deleteCrmRecommend', 'setCrmPendingCheck'];
+    'addCrmTask', 'doneCrmTask', 'setCrmTaskDue', 'deleteCrmTask', 'setCrmTaskOwner', 'setCrmViewingWish', 'setCrmMailStop', 'setCrmLineOnlyEnded', 'setCrmPropStatus', 'setCrmSearchNow', 'saveCrmRecommend', 'setCrmRecommendEnabled', 'deleteCrmRecommend', 'setCrmPendingCheck', 'getCrmSearchStatus'];
 }
 function _cfCrmCall_(e) {
   var out;
