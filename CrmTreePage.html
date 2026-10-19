@@ -164,6 +164,13 @@
   .inp.pq { width: 100%; margin: 0 0 6px; padding: 7px 10px; border: 1px solid var(--hair); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
   .pbar { display: inline-block; width: 120px; height: 6px; border-radius: 3px; background: var(--hair); vertical-align: middle; overflow: hidden; }
   .pbar i { display: block; height: 100%; background: var(--green); }
+  .srbox { border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; font-size: 13px; }
+  .srbox .srh { margin-bottom: 2px; }
+  .srbox a { color: var(--green); }
+  .sri { font-size: 12px; padding: 2px 0; }
+  .sri.sropen { color: var(--green); font-weight: 700; }
+  .srlist { margin-top: 4px; max-height: 260px; overflow-y: auto; border-top: 1px solid var(--hair); padding-top: 4px; }
+  .srrow { padding: 8px 0; border-bottom: 1px solid var(--hair); font-size: 13px; }
   .sgrp { font-size: 11px; color: var(--muted); margin: 12px 0 2px; letter-spacing: .05em; }
   .shd { font-size: 13px; padding: 5px 2px; border-bottom: 1px solid var(--hair); cursor: pointer; }
   .shd b { font-weight: 700; }
@@ -301,6 +308,7 @@
     <button class="btn" id="importBtn" onclick="importNow()">📥 問い合わせ取込</button>
     <a class="btn" id="searchLink">🔍 物件検索を回す</a>
     <a class="btn" id="adminLink" target="_blank">管理画面</a>
+    <button class="btn" onclick="openResults()">📊 今日の検索結果</button>
     <button class="btn" id="dupBtn" onclick="reviewDup()">🧹 重複リード確認</button>
     <button class="btn" id="pendBtn" onclick="reviewPending()">🧹 承認待ち整理</button>
     <a class="btn" id="cfLink" target="_blank" style="display:none">⚡ Cloudflare版を開く</a>
@@ -318,8 +326,9 @@
   <div class="foot" id="foot"></div>
 </div>
 <div class="toast" id="toast"></div>
-<div class="slide-bg" id="slideBg" onclick="closeEdit();closeCrit()"></div>
+<div class="slide-bg" id="slideBg" onclick="closeEdit();closeCrit();closeResults()"></div>
 <div class="slide" id="critSlide"><div class="sh"><b id="critSlideTitle"></b><button class="btn" onclick="closeCrit()">✕ 閉じる（保存しない）</button></div><div class="sbody" id="critSlideBody"></div></div>
+<div class="slide" id="resSlide"><div class="sh"><b>📊 今日の検索結果</b><button class="btn" onclick="closeResults()">✕ 閉じる</button></div><div class="sbody" id="resBody"></div></div>
 <div class="slide" id="slide"><div class="sh"><b id="slideTitle"></b><button class="btn save" onclick="saveEdit()">保存する</button><button class="btn" onclick="closeEdit()">✕ 閉じる</button></div><div class="sbody" id="slideBody"></div></div>
 <div class="lb" id="lb" hidden onclick="if(event.target===this)lbClose()"><button class="lbn" style="left:16px" onclick="lbGo(-1)">‹</button><img id="lbImg"><button class="lbn" style="right:16px" onclick="lbGo(1)">›</button><div class="lbc" id="lbCap"></div></div>
 
@@ -1312,7 +1321,7 @@
     var autoSkip = function (p) { var ps = psAll[p.roomId] || {}; return ps.s !== '見送り' && p.act !== 'not_interested'; };
     x.secOpen = x.secOpen || {};
     var isOpen = function (sc) { return pq ? true : ((sc.k in x.secOpen) ? x.secOpen[sc.k] : !!sc.open); };
-    var h = '';
+    var h = lastSearchHtml(c, x);
     if (pq) {
       var nHit = 0; SECS.forEach(function (sc) { nHit += sc.k === 'キャンセル待ち' ? watchShown.length : bySec[sc.k].length; });
       h += '<div class="meta">「' + esc(x.pq) + '」に当たった物件 ' + nHit + '件 <a href="#" onclick="pqSet(\'\');return false">絞るのをやめる</a></div>';
@@ -1434,6 +1443,53 @@
   }
   // ── キャンセル待ち ──
   // 空室確認で「募集中」に戻ると、ここに🔔が付く（Discordにも届く）。お客様には自動で送らない。
+  // ── 直近の検索結果（お客様の欄の物件の段の上）と、全員分の「今日の検索結果」──
+  var SR_ORDER = ['申込あり', '募集終了', 'もう送った・見た', '同じ建物で4部屋目以降', '入居時期が合わない', '条件に合わない'];
+  function srCountsHtml(counts, onclickOf) {
+    var ks = SR_ORDER.filter(function (k) { return counts[k]; }).concat(Object.keys(counts || {}).filter(function (k) { return SR_ORDER.indexOf(k) < 0 && counts[k]; }));
+    return ks.length ? ks.map(function (k) { return onclickOf ? '<a href="#" onclick="' + onclickOf(k) + ';return false">' + esc(k) + ' ' + counts[k] + '</a>' : esc(k) + ' ' + counts[k]; }).join(' / ') : 'なし';
+  }
+  function lastSearchHtml(c, x) {
+    var r = c.lastSearch, w = c.watch || [];
+    if (!r && !w.length) return '';
+    var h = '<div class="srbox">';
+    if (r) {
+      h += '<div class="srh">🔍 直近の検索 ' + esc(r.at) + (r.cancelled ? '（途中で止めた）' : '') + '　<b>新着 ' + r.found + '件</b></div>';
+      h += '<div class="meta">外れた物件: ' + srCountsHtml(r.counts || {}, function (k) { return 'srToggle(' + esc(JSON.stringify(k)) + ')'; }) + '</div>';
+      if (x.srOpen) {
+        var list = (r.skips || []).filter(function (s) { return s.c === x.srOpen; });
+        h += '<div class="srlist"><div class="meta"><b>' + esc(x.srOpen) + '</b>（' + list.length + '件' + ((r.counts || {})[x.srOpen] > list.length ? '・ほかは省略' : '') + '） <a href="#" onclick="srToggle(\'\');return false">閉じる</a></div>'
+          + list.map(function (s) {
+            return '<div class="sri">' + (s.u ? '<a target="_blank" href="' + esc(s.u) + '">' + esc(s.p) + '</a>' : esc(s.p)) + ' <span class="meta">' + esc(s.s) + '・' + esc(s.why) + '</span></div>';
+          }).join('') + '</div>';
+      }
+    }
+    if (w.length) {
+      h += '<div class="meta" style="margin-top:4px">⏳ キャンセル待ち ' + w.length + '件</div>' + w.map(function (it) {
+        var open = it.status === 'available';
+        return '<div class="sri' + (open ? ' sropen' : '') + '">' + esc(it.building) + (it.room ? ' ' + esc(it.room) : '') + ' … ' + esc(WATCH_ST[it.status] || 'まだ確かめていない') + (it.checkedAt ? '（' + esc(it.checkedAt) + '確認）' : '') + '</div>';
+      }).join('');
+    }
+    return h + '</div>';
+  }
+  function srToggle(k) { var x = extras[selName]; x.srOpen = (x.srOpen === k) ? '' : k; render(); }
+  function openResults() {
+    var t0 = todayYmd(), list = data.customers.filter(function (c) { return c.lastSearch && c.lastSearch.ms; })
+      .sort(function (a, b) { return b.lastSearch.ms - a.lastSearch.ms; });
+    var today = list.filter(function (c) { var d = new Date(c.lastSearch.ms + 9 * 3600000).toISOString().slice(0, 10); return d === t0; });
+    var tot = 0; today.forEach(function (c) { tot += c.lastSearch.found; });
+    var h = '<div class="meta" style="margin:8px 0">今日検索したお客様 ' + today.length + '人・新着 合計' + tot + '件（それぞれ直近の1回分）</div>';
+    h += (today.length ? today : list.slice(0, 30)).map(function (c) {
+      var r = c.lastSearch, wOpen = (c.watch || []).filter(function (w) { return w.status === 'available'; }).length;
+      return '<div class="srrow"><a href="#" onclick="closeResults();pickCust(' + esc(JSON.stringify(c.name)) + ');return false"><b>' + esc(c.name) + '</b></a> <span class="meta">' + esc(r.at) + '</span> <b>新着 ' + r.found + '件</b>'
+        + (wOpen ? ' <span class="stag">🔔キャンセル待ちが空いた ' + wOpen + '</span>' : '')
+        + '<div class="meta">外れた物件: ' + srCountsHtml(r.counts || {}) + '</div></div>';
+    }).join('') || '<div class="meta">まだ検索の結果がありません</div>';
+    document.getElementById('resBody').innerHTML = h;
+    document.getElementById('resSlide').classList.add('on');
+    document.getElementById('slideBg').classList.add('on');
+  }
+  function closeResults() { document.getElementById('resSlide').classList.remove('on'); if (!ed && !critOpenFor) document.getElementById('slideBg').classList.remove('on'); }
   var WATCH_ST = { available: '🔔 空いた（募集中）', applied: '申込あり', closed: '募集終了', reins_listed: 'REINSに出ている', needs_confirmation: '要確認' };
   function watchHtml(c, only) {
     var list = (only || c.watch || []).slice().sort(function (a, b) { return (b.status === 'available') - (a.status === 'available'); });

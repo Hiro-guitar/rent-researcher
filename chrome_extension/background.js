@@ -1039,7 +1039,7 @@ async function submitProperties(customerName, properties, opts) {
     for (const p of properties) {
       if (globalThis.__sbShouldSkip(customerName, p)) {
         p._sbCapped = true;
-        await setStorageData({ debugLog: `${customerName}: ✗ 同じ建物・同じ広さの部屋は${__SB_MAX}部屋まで → 見送り: ${p.building_name || ''} ${p.room_number || ''}` });
+        await setStorageData({ debugLog: `${customerName}: ✗ スキップ: ${p.building_name || ''} ${p.room_number || ''} - 同じ建物・同じ広さの部屋は${__SB_MAX}部屋まで` });
         continue;
       }
       globalThis.__sbKeep(customerName, p);
@@ -5613,6 +5613,7 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     // 順番は「絞り込む前の全条件」基準で決める（本人OFF＋おすすめONのお客さんが飛ばないように）
     const criteria = groupCriteriaByCustomer(_selected, allCriteria);
     globalThis.__sbReset();   // 同じ建物の部屋の数え直し（検索1回ごと）
+    globalThis.__srReset(); globalThis.__srActive = true; globalThis.__srNames = criteria.map(c => c.name);
     // 4サイトを同時に進めるか（既定はする。log.html などで parallelServices=false にすると順番に戻る）
     {
       const { parallelServices } = await getStorageData(['parallelServices']);
@@ -6050,6 +6051,17 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
   } finally {
     clearInterval(globalKeepAlive);
     globalThis._parallelCycle = false;
+    // 直近の検索結果を、お客様ごとにGASへ1回だけ送る（新着の件数・外れた理由の件数と一覧）
+    if (globalThis.__srActive) {
+      globalThis.__srActive = false;
+      try {
+        const names = Array.from(new Set(globalThis.__srNames || []));
+        const results = names.map(n => ({ name: n, found: discordPropertyCounters[n] || 0,
+          counts: (globalThis.__sr[n] || {}).counts || {}, skips: (globalThis.__sr[n] || {}).skips || [],
+          cancelled: isSearchCancelled(searchId) }));
+        if (results.length) gasPost({ action: 'record_search_results', results }).catch(e => console.warn('[検索結果] 送れません: ' + e.message));
+      } catch (eSr) { console.warn('[検索結果] ' + eSr.message); }
+    }
     // スマホ・CRMから頼まれた検索なら、終わったことをGASに返す（新着の件数つき）
     if (globalThis._mobileReqId) {
       const _rid = globalThis._mobileReqId; globalThis._mobileReqId = null;
@@ -8282,9 +8294,35 @@ function getStorageData(keys) {
 //   追えなくなっていた（2026-09-12）。順番待ちさせて取りこぼしを無くす。
 let _debugLogChain = Promise.resolve();
 
+// ── 検索の結果を、お客様ごとにまとめておく（CRMの「直近の検索結果」用。2026-10-19）──
+//   外れた物件はサイトごとにいろいろな所でログに出しているので、ログの行から拾う（「名前: ✗ …: 物件 - 理由」の形）
+globalThis.__srReset = () => { globalThis.__sr = {}; };
+globalThis.__srReset();
+function __srCategory(reason) {
+  const r = String(reason || '');
+  if (/申込/.test(r)) return '申込あり';
+  if (/通知済|既存物件|送付済|送った/.test(r)) return 'もう送った・見た';
+  if (/同じ建物/.test(r)) return '同じ建物で4部屋目以降';
+  if (/入居/.test(r)) return '入居時期が合わない';
+  if (/募集終了|掲載終了|成約/.test(r)) return '募集終了';
+  return '条件に合わない';
+}
+function __srCollect(line) {
+  if (!globalThis.__srActive) return;
+  // [itandi] 名前: ✗ 一覧段階スキップ: 建物 101 - 理由 https://…  ／  名前: [入居時期厳守] スキップ: 建物 - 理由
+  const m = line.match(/^(?:\[(itandi|いえらぶ|ES-Square)\]\s*)?([^:：\[\]]{1,30}?):\s*(?:✗\s*)?(?:[^:：]*?スキップ[^:：]*|[^:：]*見送り)[:：]\s*(.+?)\s+-\s+(.+?)(?:\s+(https?:\/\/\S+).*)?$/);
+  if (!m || /重複スキップ|本日済み/.test(line)) return;
+  const site = m[1] || 'REINS', name = m[2].trim();
+  const r = globalThis.__sr[name] = globalThis.__sr[name] || { counts: {}, skips: [] };
+  const cat = __srCategory(m[4]);
+  r.counts[cat] = (r.counts[cat] || 0) + 1;
+  if (r.skips.length < 300) r.skips.push({ p: m[3].slice(0, 40), why: m[4].replace(/https?:\/\/\S+/g, '').slice(0, 60), c: cat, s: site, u: m[5] || '' });
+}
+
 function setStorageData(data) {
   if (data.debugLog) {
     const line = String(data.debugLog);
+    try { __srCollect(line); } catch (_) {}
     const rest = Object.assign({}, data);
     delete rest.debugLog;
     _debugLogChain = _debugLogChain.then(() => new Promise(resolve => {

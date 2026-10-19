@@ -663,6 +663,7 @@ function _crmTreeForPage_(only) {
   var pstat = (typeof _crmPropStatusAll_ === 'function') ? _crmPropStatusAll_() : {};
   var recs = _crmRecommendsAll_();
   var runsToday = _crmSearchRunsToday_();
+  var lastRes = _crmSearchResultsAll_();
   var page = {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -679,7 +680,8 @@ function _crmTreeForPage_(only) {
           .sort(function (a, b) { return (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0; }),
         watch: watch[c.name] || [],
         pstat: pstat[c.name] || {},
-        searchToday: runsToday[c.name] || null,   // 今日の検索 { n, last, found }
+        searchToday: runsToday[c.name] || null,
+        lastSearch: lastRes[c.name] || null,   // 直近の検索結果 { at, found, counts, skips }   // 今日の検索 { n, last, found }
         recs: (c.stageId !== 'ended' && c.stageId !== 'won') ? (recs[c.name] || []) : [],   // おすすめ条件   // 物件ごとの検討状況（roomId → { s: 段階, w: 内見の日時, m: メモ }）
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
@@ -1396,6 +1398,48 @@ function _crmLineChatUrls_(ss) {
     if (sh && sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
       var n = String(r[0] || '').trim(), chat = String(r[1] || '').trim(), bot = String(r[2] || '').trim();
       if (n && chat && bot) out[n] = 'https://chat.line.biz/' + bot + '/chat/' + chat;
+    });
+  } catch (e) {}
+  return out;
+}
+
+// ── 直近の検索結果（2026-10-19）── お客様1人につき1行を上書き。外れた物件の一覧もその行に入れる（書き込みを増やさないため）
+var CRM_SEARCH_RESULT_SHEET = '検索結果';   // A=顧客名 B=日時 C=新着の件数 D=外れた理由の件数(JSON) E=外れた物件(JSON) F=途中で止めた
+
+function recordCrmSearchResults_(results) {
+  if (!Array.isArray(results) || !results.length) return { ok: true, n: 0 };
+  var lock = LockService.getScriptLock(); try { lock.waitLock(20000); } catch (eL) { return { ok: false, error: 'busy' }; }
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sh = ss.getSheetByName(CRM_SEARCH_RESULT_SHEET);
+    if (!sh) { sh = ss.insertSheet(CRM_SEARCH_RESULT_SHEET); sh.appendRow(['顧客名', '日時', '新着', '外れた理由', '外れた物件', '途中で止めた']); }
+    var rowOf = {};
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (r, i) { rowOf[String(r[0]).trim()] = i + 2; });
+    var now = new Date(), touched = [];
+    results.forEach(function (x) {
+      var n = String(x && x.name || '').trim(); if (!n) return;
+      var skips = Array.isArray(x.skips) ? x.skips.slice(0, 300) : [];
+      var sj = JSON.stringify(skips);
+      while (sj.length > 45000 && skips.length) { skips = skips.slice(0, Math.floor(skips.length * 0.8)); sj = JSON.stringify(skips); }   // 1つのマスは5万文字まで
+      var vals = [n, now, Number(x.found) || 0, JSON.stringify(x.counts || {}), sj, x.cancelled ? '止めた' : ''];
+      var row = rowOf[n];
+      if (row) sh.getRange(row, 1, 1, 6).setValues([vals]); else { sh.appendRow(vals); row = rowOf[n] = sh.getLastRow(); }
+      touched.push(row);
+    });
+    try { cfSyncRows(CRM_SEARCH_RESULT_SHEET, touched, '検索結果'); } catch (eCf) {}
+    return { ok: true, n: touched.length };
+  } finally { lock.releaseLock(); }
+}
+function _crmSearchResultsAll_() {
+  var out = {};
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRM_SEARCH_RESULT_SHEET);
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+      var n = String(r[0]).trim(); if (!n) return;
+      var ms = (r[1] instanceof Date) ? r[1].getTime() : _cellToEpochMs_(r[1]);
+      var counts = {}, skips = []; try { counts = JSON.parse(r[3] || '{}'); } catch (e) {} try { skips = JSON.parse(r[4] || '[]'); } catch (e2) {}
+      out[n] = { at: ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d H:mm') : '', ms: ms || 0, found: Number(r[2]) || 0, counts: counts, skips: skips, cancelled: !!r[5] };
     });
   } catch (e) {}
   return out;

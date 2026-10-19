@@ -118,6 +118,13 @@ function doPost(e) {
     // ⚠️ update_availability は使わないこと。あちらは空いたらキャンセル待ちの印を消し、
     //   Discord にも送る（拡張も送るので二重になる）。ここは F列(状態)・G列(確認日時)を書くだけ。
     //   CRMの「キャンセル待ち」欄が、この記録を見て空き状況を出す。
+    // 拡張から: 直近の検索結果（お客様ごと）
+    if (json.action === 'record_search_results') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify(recordCrmSearchResults_(json.results))).setMimeType(ContentService.MimeType.JSON);
+    }
     // 拡張から: 新着の空室を確かめた結果
     if (json.action === 'pending_check_result') {
       if (!_validateReinsApiKey(json.api_key)) {
