@@ -223,14 +223,31 @@ function getCrmSearchStatus() {
   return { req: req, seenMs: seen, seenAgo: _mobileAgo_(seen), now: Date.now() };
 }
 
+/** 拡張から: 頼まれた検索の進み具合（何人目か） */
+function handleSearchRequestProgress(json) {
+  // ⚠️ 進み具合と「終わった」が同時に来ても上書きし合わないよう、順番に書く
+  var lock = LockService.getScriptLock(); try { lock.waitLock(10000); } catch (eL) {}
+  var props = PropertiesService.getScriptProperties();
+  var req = null; try { req = JSON.parse(props.getProperty(MOBILE_SEARCH_KEY) || 'null'); } catch (e) {}
+  if (req && String(req.id) === String(json.id) && req.status !== 'finished') {
+    req.progress = { pos: Number(json.pos) || 0, total: Number(json.total) || 0, name: String(json.name || ''), at: Date.now() };
+    props.setProperty(MOBILE_SEARCH_KEY, JSON.stringify(req));
+  }
+  try { lock.releaseLock(); } catch (eR) {}
+  return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+}
+
 /** 拡張から: 頼まれた検索が最後まで終わった */
 function handleSearchRequestFinished(json) {
+  // ⚠️ 進み具合と「終わった」が同時に来ても上書きし合わないよう、順番に書く
+  var lock = LockService.getScriptLock(); try { lock.waitLock(10000); } catch (eL) {}
   var props = PropertiesService.getScriptProperties();
   var req = null; try { req = JSON.parse(props.getProperty(MOBILE_SEARCH_KEY) || 'null'); } catch (e) {}
   if (req && String(req.id) === String(json.id)) {
     req.status = 'finished'; req.finishedAt = Date.now(); req.found = Number(json.found) || 0;
     props.setProperty(MOBILE_SEARCH_KEY, JSON.stringify(req));
   }
+  try { lock.releaseLock(); } catch (eR) {}
   return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
 }
 

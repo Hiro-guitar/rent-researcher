@@ -5792,6 +5792,11 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
         currentSearchingPos: `${ci + 1}/${criteria.length}`,
         debugLog: `━━ 顧客 ${ci+1}/${criteria.length}: ${customer.name} ━━`
       });
+      // スマホ・CRMから頼まれた検索なら、いま何人目かをGASに知らせる（CRMの画面に「2/5人目」と出す）。待たない
+      if (globalThis._mobileReqId) {
+        gasPost({ action: 'search_request_progress', id: globalThis._mobileReqId, pos: ci + 1, total: criteria.length,
+          name: customer.name + (customer.recommend ? '（おすすめ: ' + (customer.recommendLabel || '') + '）' : '') }).catch(() => {});
+      }
 
       // ── 4サイトを同時に進める（2026-10-13）。お客様1人ごとに、全部終わってから次の人へ ──
       //   ⚠️ 結果はいったん貯めて（deliverProperty が _parallelCycle で一括モードと同じく貯める）、4サイト終わってから重なりを除いて通知する。

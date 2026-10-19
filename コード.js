@@ -67,6 +67,12 @@ function doPost(e) {
     }
 
     // --- スマホから置かれた検索指示を「実行した」と報告する (Chrome拡張から) ---
+    if (json.action === 'search_request_progress') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return handleSearchRequestProgress(json);
+    }
     if (json.action === 'search_request_finished') {
       if (!_validateReinsApiKey(json.api_key)) {
         return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);

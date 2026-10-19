@@ -162,6 +162,8 @@
   .prop .cmt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ptabs { display: flex; gap: 4px; position: sticky; top: -12px; background: var(--surface); padding: 4px 0 6px; z-index: 2; border-bottom: 1px solid var(--hair); }
   .inp.pq { width: 100%; margin: 0 0 6px; padding: 7px 10px; border: 1px solid var(--hair); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+  .pbar { display: inline-block; width: 120px; height: 6px; border-radius: 3px; background: var(--hair); vertical-align: middle; overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: var(--green); }
   .sgrp { font-size: 11px; color: var(--muted); margin: 12px 0 2px; letter-spacing: .05em; }
   .shd { font-size: 13px; padding: 5px 2px; border-bottom: 1px solid var(--hair); cursor: pointer; }
   .shd b { font-weight: 700; }
@@ -1772,9 +1774,10 @@
     var t = function (ms) { var d = new Date(ms); return d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2); };
     var who = (r.keys || []).map(function (k) { return String(k).replace(/^all::/, '').replace(/^rec::.*/, 'おすすめ条件'); }).join('・') || 'いつもの全員';
     var step = r.status === 'finished' ? '✓ 終わりました ' + t(r.finishedAt) + (typeof r.found === 'number' ? '（新着 ' + r.found + '件）' : '')
-      : r.status === 'done' ? '⏳ PCで検索中（' + t(r.doneAt || r.requestedAt) + 'に開始）'
+      : r.status === 'done' ? '⏳ PCで検索中' + (r.progress && r.progress.total ? ' ' + r.progress.pos + '/' + r.progress.total + '人目（' + esc(r.progress.name) + '・' + t(r.progress.at) + '〜）' : '（' + t(r.doneAt || r.requestedAt) + 'に開始）')
+        + (r.progress && r.progress.total ? ' <span class="pbar"><i style="width:' + Math.round(100 * (r.progress.pos - 1) / r.progress.total) + '%"></i></span>' : '')
       : '… PCが受け取るのを待っています（PCが最後に見にきたのは' + esc(st.seenAgo || '—') + '）';
-    el.innerHTML = '🔍 頼んだ検索 ' + t(r.requestedAt) + '：' + esc(who) + ' → ' + step;
+    el.innerHTML = '🔍 頼んだ検索 ' + t(r.requestedAt) + '：' + esc(who) + ' → ' + step;   // step の中の esc 済みの文字と、進みの棒の html
   }
   // ⚠️ 名前・電話番号はURLに載せない（ファイルを手元で作って開く）
   function addToContacts(name) {
