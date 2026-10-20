@@ -97,7 +97,9 @@ function _crmPendingAll_(crits, only) {
         warnings: String(warn).split('\n').filter(function (s) { return s; }),
         found: (data[i][11] instanceof Date) ? Utilities.formatDate(data[i][11], 'Asia/Tokyo', 'M/d') : '',
         comment: String(data[i][14] || ''),   // O列: 担当者コメント（別の人から引き継いだものも）
-        availTag: (function () { try { return _crmAvailTag_(JSON.parse(String(data[i][9] || '{}'))); } catch (eA) { return ''; } })()
+        availTag: (function () { try { return _crmAvailTag_(JSON.parse(String(data[i][9] || '{}'))); } catch (eA) { return ''; } })(),
+        availS: (function () { try { var a = JSON.parse(String(data[i][9] || '{}')).avail_check; return a ? a.s : ''; } catch (eA) { return ''; } })(),
+        availAt: (function () { try { var a = JSON.parse(String(data[i][9] || '{}')).avail_check; return a ? a.at : ''; } catch (eA) { return ''; } })()
       });
     }
   } catch (e) { console.warn('[送る物件] 承認待ちを読めません: ' + e.message); }
@@ -694,7 +696,11 @@ function _crmPropListsFor_(names) {
       image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, url: _crmSourceUrl_(p) };
     var o = out[n] = out[n] || { sent: [], skipped: [] };
     if (st === 'sent') { item.sentAt = day; item.closed = closedBy[n + '|' + rid] || ''; o.sent.push(item); }
-    else { item.at = day; try { item.availTag = _crmAvailTag_(JSON.parse(String(data[i][9] || '{}'))); } catch (eA) {} o.skipped.push(item); }
+    else {
+      item.at = day;
+      try { var _jsA = JSON.parse(String(data[i][9] || '{}')); item.availTag = _crmAvailTag_(_jsA); item.availS = (_jsA.avail_check && _jsA.avail_check.s) || ''; item.availAt = (_jsA.avail_check && _jsA.avail_check.at) || ''; } catch (eA) {}
+      o.skipped.push(item);
+    }
   }
   // お客様の反応（アクションログ）: 見た回数・最後に見た時刻・いちばん新しい押した操作（お気に入り・内見希望など）
   var react = {};

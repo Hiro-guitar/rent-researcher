@@ -1315,7 +1315,8 @@
     newList.filter(hit).forEach(function (p) { bySec['新着'].push(p); });
     candList.filter(hit).forEach(function (p) { bySec['候補'].push(p); });
     if (sent) sent.filter(hit).forEach(function (p) { bySec[stageOfSent(p)].push(p); });
-    if (skipped) skipped.filter(hit).forEach(function (p) { bySec['見送った'].push(p); });
+    // 空室を確かめて申込あり・募集終了だった物件は「募集終了」の段へ（こちらで見送ったものと分ける）
+    if (skipped) skipped.filter(hit).forEach(function (p) { bySec[(p.availS === 'closed' || p.availS === 'applied') ? '募集終了' : '見送った'].push(p); });
     var watchShown = (c.watch || []).filter(function (w) { return !pq || pqNorm([w.building, w.room].join(' ')).indexOf(pq) >= 0; });
     // 送る前の物件に付けた段（内見希望など）は、その段にも出す
     var autoSkip = function (p) { var ps = psAll[p.roomId] || {}; return ps.s !== '見送り' && p.act !== 'not_interested'; };
@@ -1355,6 +1356,10 @@
         h += watchHtml(c, watchShown);
       } else if (sc.k === '見送った') {
         h += list.map(function (p) { return propRow(p, 'skip', c, x, watching); }).join('');
+      } else if (sc.k === '募集終了') {
+        // 送った物件で募集終了になったものと、新着の空室確認で申込あり・募集終了だったもの（新しく確かめた順）
+        h += list.filter(function (p) { return !p.availS; }).map(function (p) { return propRow(p, 'sent', c, x, watching); }).join('')
+          + list.filter(function (p) { return p.availS; }).map(function (p) { return propRow(p, 'skip', c, x, watching); }).join('');
       } else {
         if (sc.k === '送った' && c.family && c.family.length) {
           var nf = Object.keys(x.famPick).filter(function (k) { return x.famPick[k]; }).length;
@@ -1451,8 +1456,19 @@
   }
   function lastSearchHtml(c, x) {
     var r = c.lastSearch, w = c.watch || [];
-    if (!r && !w.length) return '';
+    // 今日の空室確認の結果（新着に残った分と、募集終了の段へ移った分）
+    var md = (function () { var d = new Date(); return (d.getMonth() + 1) + '/' + d.getDate(); })();
+    var L = listCache[c.name], sk = (L && L !== 'loading' && L.skipped) || [];
+    var chk = (c.pending || []).concat(sk).filter(function (p) { return p.availS && p.availAt === md; });
+    var moved = chk.filter(function (p) { return p.availS === 'closed' || p.availS === 'applied'; });
+    if (!r && !w.length && !chk.length) return '';
     var h = '<div class="srbox">';
+    if (chk.length) {
+      h += '<div class="srh">🏠 今日の空室確認 ' + chk.length + '件 → 空室 ' + chk.filter(function (p) { return /^(available|reins_listed)$/.test(p.availS); }).length + '件'
+        + (moved.length ? '・<a href="#" onclick="secToggle(\'募集終了\',true);return false">申込あり・募集終了 ' + moved.length + '件（募集終了の段へ移しました）</a>' : '')
+        + (chk.filter(function (p) { return p.availS === 'unknown'; }).length ? '・確認できず ' + chk.filter(function (p) { return p.availS === 'unknown'; }).length + '件' : '') + '</div>';
+      if (moved.length) h += moved.map(function (p) { return '<div class="sri">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + ' … ' + esc(p.availTag || '') + '</div>'; }).join('');
+    }
     if (r) {
       h += '<div class="srh">🔍 直近の検索 ' + esc(r.at) + (r.cancelled ? '（途中で止めた）' : '') + '　<b>新着 ' + r.found + '件</b></div>';
       h += '<div class="meta">外れた物件: ' + srCountsHtml(r.counts || {}, function (k) { return 'srToggle(' + esc(JSON.stringify(k)) + ')'; }) + '</div>';
