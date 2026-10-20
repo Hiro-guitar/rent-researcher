@@ -1599,7 +1599,8 @@
     var name = selName, c = custOf(name), set = {}; ids.forEach(function (k) { set[k] = true; });
     var items = (c.pending || []).filter(function (p) { return set[p.roomId] && p.url; }).map(function (p) {
       var m = String(p.url).match(/bukken=(\d+)/);
-      return { customer: name, roomId: p.roomId, url: p.url, source: '', reinsPropNo: m ? m[1] : '' };
+      // 同じ部屋をほかのサイトでも見つけていたら、空室確認はそちら（REINSより正確）。分からなければREINSで見直す（2026-10-20）
+      return { customer: name, roomId: p.roomId, url: p.checkUrl || p.url, fallbackUrl: p.checkUrl ? p.url : '', source: '', reinsPropNo: m ? m[1] : '' };
     });
     var done = false;
     var viaGas = function (busy) {

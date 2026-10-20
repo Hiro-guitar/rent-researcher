@@ -8454,11 +8454,18 @@ function normalizeBuildingName(name) {
     .toUpperCase();
 }
 
+// 部屋番号をそろえる: 全角→半角・空白/ハイフン/「号室」を除く・数字の頭の0を除く（「１０１号室」「101」「0101」は同じ部屋）（2026-10-20）
+function _normRoomForDedup(room) {
+  return String(room || '').normalize('NFKC').toUpperCase()
+    .replace(/号室|号/g, '').replace(/[\s・\-－ー‐]/g, '')
+    .replace(/(^|[^0-9])0+(?=[0-9])/g, '$1');
+}
+
 function buildDedupKey(prop) {
   const name = normalizeBuildingName(prop.building_name || prop.buildingName || '');
   if (!name) return null; // 建物名ないと判定不能→重複排除しない
-  const room = prop.room_number || prop.roomNumber || '';
-  if (room) return `${name}|${String(room).trim()}`;
+  const room = _normRoomForDedup(prop.room_number || prop.roomNumber || '');
+  if (room) return `${name}|${room}`;
   const floor = prop.floor || prop.floorText || '';
   const area = prop.area || '';
   return `${name}|${floor}|${area}`;
@@ -8608,6 +8615,15 @@ async function flushBatchBufferForCustomer(customerName) {
     }
   }
   let winners = [...byKey.values(), ...noKey];
+  // 同じ部屋をほかのサイトでも見つけていたら、そのページを付けておく。空室確認はそちらで見る（REINSより正確なため。2026-10-20）
+  for (const w of winners) {
+    const wk = buildDedupKey(w.prop);
+    if (!wk) continue;
+    const urls = dropped.filter(d => d.service !== 'reins' && d.prop && d.prop.url && buildDedupKey(d.prop) === wk)
+      .sort((a, b) => (_serviceRank[b.service] || 0) - (_serviceRank[a.service] || 0)).map(d => d.prop.url);
+    if (w.service !== 'reins' && w.prop.url) urls.unshift(w.prop.url);
+    if (urls.length && w.service === 'reins') w.prop.check_urls = [...new Set(urls)];
+  }
   // 4サイト同時のとき: 残った物件をここで初めてGASに送る（新着に入る）。1件ずつ送って、GASにもうあったREINSの物件は通知しない（順番に回していた頃と同じ）
   if (globalThis._parallelCycle && !globalThis._suumoPatrolMode && winners.length) {
     const sent = [];

@@ -3534,6 +3534,10 @@ function handleAddReinsProperty(json) {
         remarks: p.remarks || ''
       });
     }
+    // 同じ部屋をほかのサイト（itandi・ES-Square・いえらぶ）でも見つけていたら、そのページを残す。空室確認はそちらで見る（REINSより正確なため。2026-10-20）
+    if (p.check_urls && p.check_urls.length) {
+      try { var _dj = JSON.parse(dataJson || '{}'); _dj.check_urls = p.check_urls; dataJson = JSON.stringify(_dj); } catch (eCu) {}
+    }
 
     if (existingIds[dedupKey] && existingRows[dedupKey]) {
       // 既存行を更新（status/created_at は保持、他は全て最新データで上書き）

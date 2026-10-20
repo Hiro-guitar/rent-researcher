@@ -65,7 +65,7 @@ function _crmPendingAll_(crits, only) {
     // 同じ部屋を別のサイトの番号でキャンセル待ちにしていたら、新着の方にも「キャンセル待ち中」と出す（2回付けないように）
     var watchKeys = {};
     watchRows.forEach(function (w) { var kw = bkey(w.name, w); if (kw) watchKeys[kw] = true; });
-    var shown = {};
+    var shown = {}, altUrl = {}, keyOf = [];
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][10]) !== 'pending') continue;
       var name = String(data[i][0] || '').trim();
@@ -74,6 +74,8 @@ function _crmPendingAll_(crits, only) {
       var p;
       try { p = rowToProperty(data[i]); } catch (e) { continue; }
       var k = bkey(name, p);
+      // 同じ部屋のREINS以外のページ（別の行でも）を覚えておく。空室確認はそちらで見る（REINSより正確なため。2026-10-20）
+      if (k) { var _u0 = _crmSourceUrl_(p); if (_u0 && !/reins\.jp/.test(_u0)) altUrl[k] = altUrl[k] || _u0; }
       if (k && (sentKeys[k] || shown[k])) continue;   // 同じ部屋を送った／もう一覧に出した
       if (k) shown[k] = true;
       var cr = (crits && crits[name]) || {};
@@ -93,6 +95,7 @@ function _crmPendingAll_(crits, only) {
         rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '',
         station: p.stationInfo || '', age: p.buildingAge || '', floor: p.floorText || '',
         image: imgs[0] || '', images: imgs.slice(0, 6), imgCount: imgs.length, edited: edited, url: _crmSourceUrl_(p),
+        checkUrl: (function () { try { var cu = JSON.parse(String(data[i][9] || '{}')).check_urls; return (cu && cu[0]) || ''; } catch (eC) { return ''; } })(),
         watching: !!(k && watchKeys[k]),
         warnings: String(warn).split('\n').filter(function (s) { return s; }),
         found: (data[i][11] instanceof Date) ? Utilities.formatDate(data[i][11], 'Asia/Tokyo', 'M/d') : '',
@@ -101,7 +104,10 @@ function _crmPendingAll_(crits, only) {
         availS: (function () { try { var a = JSON.parse(String(data[i][9] || '{}')).avail_check; return a ? a.s : ''; } catch (eA) { return ''; } })(),
         availAt: (function () { try { var a = JSON.parse(String(data[i][9] || '{}')).avail_check; return a ? a.at : ''; } catch (eA) { return ''; } })()
       });
+      if (k) keyOf.push([out[name][out[name].length - 1], k]);
     }
+    // REINSの物件で、同じ部屋がほかのサイトの行にもあれば、空室確認はそのページで
+    keyOf.forEach(function (x) { if (!x[0].checkUrl && /reins\.jp/.test(x[0].url) && altUrl[x[1]]) x[0].checkUrl = altUrl[x[1]]; });
   } catch (e) { console.warn('[送る物件] 承認待ちを読めません: ' + e.message); }
   // 条件に合わないかもしれない物件（⚠ が付いたもの）は後ろへ。順番はそれぞれの中で今のまま
   Object.keys(out).forEach(function (n) {
@@ -745,6 +751,8 @@ function setCrmPendingCheck(customerName, roomIds) {
   var want = {}; (roomIds || []).forEach(function (r) { want[String(r)] = true; });
   if (!customerName || !Object.keys(want).length) throw new Error('確かめる物件を選んでください');
   var rows = _findRowsByRoomIdsAnyStatus_(customerName, Object.keys(want));
+  var checkUrlOf = {};
+  try { (_crmPendingAll_(null, customerName)[customerName] || []).forEach(function (it) { if (it.checkUrl) checkUrlOf[it.roomId] = it.checkUrl; }); } catch (eCu) {}
   var props = PropertiesService.getScriptProperties();
   var q = []; try { q = JSON.parse(props.getProperty(CRM_PCHECK_KEY) || '[]'); } catch (e) {}
   var have = {}; q.forEach(function (it) { have[it.customer + '|' + it.roomId] = true; });
@@ -756,7 +764,9 @@ function setCrmPendingCheck(customerName, roomIds) {
     var url = _crmSourceUrl_(js);
     if (!url) { noUrl++; return; }
     if (have[customerName + '|' + rid]) return;
-    q.push({ customer: customerName, roomId: rid, url: url, source: String(js.source || ''), reinsPropNo: String(js.reins_property_number || '') });
+    // 同じ部屋をほかのサイトでも見つけていたら、空室確認はそちら（REINSより正確）。分からなければREINSで見直す
+    var cu = checkUrlOf[rid] || '';
+    q.push({ customer: customerName, roomId: rid, url: cu || url, fallbackUrl: cu ? url : '', source: cu ? '' : String(js.source || ''), reinsPropNo: String(js.reins_property_number || '') });
     have[customerName + '|' + rid] = true; added++;
   });
   props.setProperty(CRM_PCHECK_KEY, JSON.stringify(q.slice(-100)));

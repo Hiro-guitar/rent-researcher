@@ -1101,19 +1101,31 @@ async function runPendingChecks(items) {
   for (const it of items) { const k = _detectSourceFromUrl(it.url) || it.source || '?'; (bySite[k] = bySite[k] || []).push(it); }
   await setStorageData({ debugLog: `[新着の空室確認] ${items.length}件を確かめます（` + Object.keys(bySite).map(k => k + ' ' + bySite[k].length + '件').join('・') + '・サイトごとに同時）' });
   const results = [];
+  const retry = [];   // ほかのサイトで分からなかった物件は、あとでREINSで見直す
   await Promise.allSettled(Object.keys(bySite).map(async (site) => {
     for (const it of bySite[site]) {
+      let status = 'unknown';
       try {
         const res = await checkOneAvailability(it);
-        const status = (res && res.status) || 'unknown';
-        results.push({ customer: it.customer, room_id: it.roomId, status });
+        status = (res && res.status) || 'unknown';
         await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} ${site} → ${status}` });
       } catch (e) {
-        results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
         await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} ${site} エラー ${e.message}` });
       }
+      if (status === 'unknown' && it.fallbackUrl && it.fallbackUrl !== it.url) { retry.push(it); continue; }
+      results.push({ customer: it.customer, room_id: it.roomId, status });
     }
   }));
+  // 同じ部屋をREINS以外でも見つけていた物件は、そちらで見た（REINSより正確なため。2026-10-20）。分からなかったものだけREINSで
+  for (const it of retry) {
+    let status = 'unknown';
+    try {
+      const res = await checkOneAvailability({ ...it, url: it.fallbackUrl, source: '' });
+      status = (res && res.status) || 'unknown';
+      await setStorageData({ debugLog: `[新着の空室確認] ${it.customer} ほかのサイトで分からず → REINSで ${status}` });
+    } catch (e) {}
+    results.push({ customer: it.customer, room_id: it.roomId, status });
+  }
   try {
     const r = await gasPost({ action: 'pending_check_result', items: results });
     await setStorageData({ debugLog: `[新着の空室確認] 結果を書きました（${(r && r.n) || 0}件・見送ったへ ${(r && r.moved) || 0}件）` });
