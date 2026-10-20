@@ -1047,6 +1047,9 @@ async function submitProperties(customerName, properties, opts) {
     }
     if (!keep.length) return { success: true, added: 0, _sbCapped: true };
     properties = keep;
+    // 4サイト同時のときは、ここではGASに送らない。4サイト終わってから、重なりと「他サイトで申込あり」を除いた物件だけを送る
+    // ⚠️ 見つけた瞬間に送っていたので、新着に同じ部屋が重なったり、itandi で申込ありの部屋の REINS 版が入っていた（2026-10-20）
+    if (globalThis._parallelCycle) return { success: true, added: properties.length, _deferred: true };
   }
   _recordNoImageProps(properties);
   // SUUMO巡回モードではGASに顧客向け送信しない（コレクターに追加）
@@ -5987,7 +5990,11 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
       } else {
         for (const f of _svcTasks) await f();
       }
-      if (isSearchCancelled(searchId)) return;
+      if (isSearchCancelled(searchId)) {
+        // 4サイト同時のときは、止めても見つけた物件はGASに送る（もう「見た」ことになっているので、送らないと次から出てこない）
+        if (globalThis._parallelCycle) { try { await flushBatchBufferForCustomer(customer.name); } catch (_) {} }
+        return;
+      }
 
       // --- キャンセル待ち物件の募集状況チェック（この顧客の監視物件・担当にだけ通知） ---
       // 1サイクル中は顧客ごとに1回だけ（メイン条件+おすすめ条件で重複実行しない）
@@ -8600,7 +8607,28 @@ async function flushBatchBufferForCustomer(customerName) {
       dropped.push({ ...e, _winnerService: existing.service, _winnerImages: _countImages(existing.prop) });
     }
   }
-  const winners = [...byKey.values(), ...noKey];
+  let winners = [...byKey.values(), ...noKey];
+  // 4サイト同時のとき: 残った物件をここで初めてGASに送る（新着に入る）。1件ずつ送って、GASにもうあったREINSの物件は通知しない（順番に回していた頃と同じ）
+  if (globalThis._parallelCycle && !globalThis._suumoPatrolMode && winners.length) {
+    const sent = [];
+    let addedTotal = 0;
+    for (const e of winners) {
+      let added = 0;
+      try {
+        const sr = await submitProperties(customerName, [e.prop]);
+        added = (sr && sr.success) ? (sr.added || 0) : 0;
+      } catch (eSub) { logError(`${customerName}: ${e.prop.building_name || ''} GAS送信失敗（まとめて）: ${eSub.message}`); continue; }
+      addedTotal += added;
+      if (e.service === 'reins' && added === 0) {
+        await setStorageData({ debugLog: `${customerName}: ⚡ GAS既存物件のため通知スキップ: ${e.prop.building_name || ''} ${e.prop.room_number || ''}` });
+        continue;
+      }
+      sent.push(e);
+    }
+    await setStorageData({ debugLog: `[system] ${customerName}: GASへ ${winners.length}件を送りました（新着に入った ${addedTotal}件）` });
+    winners = sent;
+    if (!winners.length) { delete _batchBuffer[customerName]; return; }
+  }
   const props = winners.map(e => e.prop);
   // 同じ建物・同じ広さで見送った部屋があれば、残した部屋に「ほかに◯部屋」を付けて、CRMにも知らせる
   try {
