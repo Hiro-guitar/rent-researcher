@@ -578,25 +578,32 @@ async function _checkReinsAvailability(reinsPropNo) {
       return { status: 'unknown', _reason: 'result_page_timeout' };
     }
 
-    // 結果行の有無を判定 (詳細ボタン or テーブル行 or 「該当なし」テキスト)
-    await sleep(1500); // テーブル描画待ち
-    const [{ result } = {}] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: (propNo) => {
-        const bodyText = document.body.innerText || '';
-        // ⚠️ 先に「結果の行があるか」を見る。以前は「0件」を先に見ていて、ページの中の「10件」「20件」まで
-        //   「0件」と取り違え、掲載中の物件を全部 closed にしていた（2026-10-13 CRMの新着の空室確認）
-        const hasDetail = [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '詳細');
-        if (hasDetail) return { status: 'reins_listed', listingStatus: 'REINS掲載中' };
-        // 「該当なし」「検索結果が0件」「（数字の続きでない）0件」 → closed
-        if (/該当(?:するデータが)?(?:あり|有り)?ません|検索結果が0件|(?:^|[^\d０-９])[0０]\s*件/.test(bodyText)) return { status: 'closed', listingStatus: 'REINS掲載なし' };
-        // 物件番号がページ上に表示されていれば存在
-        if (bodyText.indexOf(propNo) >= 0) return { status: 'reins_listed', listingStatus: 'REINS掲載中' };
-        // それ以外: 不明 (テーブル未描画など)
-        return { status: 'unknown', _reason: 'no_result_detected', bodySnippet: bodyText.substring(0, 200) };
-      },
-      args: [reinsPropNo]
-    });
+    // 結果行の有無を判定。表が描かれるまで最大8秒待つ
+    // ⚠️ 「0件」という文字だけで「該当なし」にしないこと。REINSの画面には拡張のパネル（「0件選択中」）も出ていて、
+    //   それを該当なしと取り違え、掲載中の物件を closed にしていた（2026-10-20）。REINSの表の中・REINSの文言だけで決める
+    let result = null;
+    for (let w = 0; w < 16; w++) {
+      await sleep(500);
+      const [{ result: r } = {}] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: (propNo) => {
+          const rows = document.querySelectorAll('.p-table-body-row');
+          const inRows = [...rows].some(row => (row.textContent || '').includes(propNo));
+          const hasDetail = [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '詳細');   // 結果の行の「詳細」ボタン（拡張のパネルにこの文字だけのボタンは無い）
+          if (inRows || hasDetail) return { status: 'reins_listed', listingStatus: 'REINS掲載中' };
+          // 拡張のパネルなどを除いた、REINSの本文だけを見る
+          const main = document.querySelector('main, #__nuxt, .l-main') || document.body;
+          const clone = main.cloneNode(true);
+          clone.querySelectorAll('[id^="ehomaki"], [class*="ehomaki"], [id*="manual-send"], [class*="manual-send"], iframe').forEach(n => n.remove());
+          const t = clone.innerText || clone.textContent || '';
+          if (/該当(?:する)?(?:物件|データ)?(?:が|は)?(?:あり|有り)?ません|検索結果が0件|該当件数[:：]?\s*0件/.test(t)) return { status: 'closed', listingStatus: 'REINS掲載なし' };
+          return null;
+        },
+        args: [reinsPropNo]
+      });
+      if (r) { result = r; break; }
+    }
+    if (!result) result = { status: 'unknown', _reason: 'no_result_detected' };
     if (result && result._reason) {
       console.warn('[availability/reins] 結果判定失敗: ' + result._reason + ' body=' + (result.bodySnippet || ''));
     }
