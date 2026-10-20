@@ -314,6 +314,10 @@ const IELOVE_STATION_NAME_MAP = {
   '東京国際クルーズターミナル': '東京国際クルーズＴ',
 };
 
+// いえらぶの「申込あり」の書き方: 「申込あり」「申込1件」のほか、件数を伏せた「申込-件」もある
+// ⚠️ 「申込-件」を見落として、申込の入っている物件を新着に入れていた（2026-10-20 プラティーク東陽町 502）
+function __ieloveIsApplied(s) { return /^申込\s*(?:あり|[\d０-９\-－‐ー]+\s*件)$/.test(String(s || '').trim()); }
+
 function resolveIeloveStationCodes(customer) {
   const codes = [];
   // routes_with_stations から全駅名を取得
@@ -649,11 +653,11 @@ function getIeloveFilterRejectReason(prop, customer) {
   // 募集状況フィルタ（「申込あり」「申込1件」「申込2件」等すべて対象）
   // SUUMO巡回モード時はスキップせずDiscord通知へ流す（警告表示）
   const isSuumoPatrol = !!globalThis._suumoPatrolMode;
-  if (!isSuumoPatrol && prop.listing_status && (prop.listing_status === '申込あり' || /^申込\d+件$/.test(prop.listing_status))) {
+  if (!isSuumoPatrol && prop.listing_status && __ieloveIsApplied(prop.listing_status)) {
     try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number, prop.url, 'いえらぶ'); } catch(e) {}
     return `申込あり(${prop.listing_status})`;
   }
-  if (prop.listing_status && prop.listing_status !== '申込あり' && !/^申込\d+件$/.test(prop.listing_status)) {
+  if (prop.listing_status && !__ieloveIsApplied(prop.listing_status)) {
     try { globalThis.__removeMoshikomiKey && globalThis.__removeMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
   }
 
@@ -1060,7 +1064,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
       // 申込あり物件は一覧の時点で即スキップ（詳細ページ遷移を省略）
       // SUUMO巡回モード時はスキップせず、詳細取得→GAS送信→Discord通知(⚠️ 募集状況: 申込あり)へ流す
-      if (!globalThis._suumoPatrolMode && prop.listing_status && (prop.listing_status === '申込あり' || /^申込\d+件$/.test(prop.listing_status))) {
+      if (!globalThis._suumoPatrolMode && prop.listing_status && __ieloveIsApplied(prop.listing_status)) {
         try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number, prop.url, 'いえらぶ'); } catch(e) {}
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 申込あり(${prop.listing_status})${globalThis.__formatPropSkipUrl(prop)}` });
         continue;
