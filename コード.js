@@ -3084,7 +3084,8 @@ function handleGetCriteria(e) {
       building_age: String(row[10] || ''),
       structures: _splitCSV(row[11]),
       equipment: String(row[12] || ''),
-      move_in_date: String(row[14] || ''),
+      // ⚠️ シートが日付に変えたセルを String() すると「Mon Nov 30 2026 … GMT+0900」になり、拡張が読めず入居時期の厳守が効かなかった（2026-10-21）
+      move_in_date: _recMoveInStr_(row[14]),
       move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',  // AA列(27): 入居時期厳守
       move_in_early_months: String(row[35] || ''),  // AJ列(36): 入居可能の早すぎ許容(月数, 空=OFF)
       notes: String(row[15] || ''),

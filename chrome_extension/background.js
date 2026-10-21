@@ -9231,7 +9231,12 @@ async function discordPostWithRetry(url, payload) {
  */
 function _parseMoveInDate(text, asDeadline = false, earliest = false) {
   if (!text) return null;
-  text = text.trim();
+  text = String(text).trim();
+  // 日付のまま届いた値（「Mon Nov 30 2026 00:00:00 GMT+0900」や「2026-11-29T15:00:00.000Z」）を「2026年11月30日」に（2026-10-21 これが読めず入居時期の厳守が効いていなかった）
+  if (/GMT|T\d{2}:\d{2}/.test(text)) {
+    const dd = new Date(text);
+    if (!isNaN(dd.getTime())) text = `${dd.getFullYear()}年${dd.getMonth() + 1}月${dd.getDate()}日`;
+  }
 
   // 制約なし・即時入居可能 → 比較不要
   const skipKeywords = ['いい物件見つかり次第', '即入居可', '即入居', '即時', '即日', '未定'];
