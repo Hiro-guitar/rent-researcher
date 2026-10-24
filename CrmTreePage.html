@@ -105,6 +105,8 @@
   .stage { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .stage .label { font-weight: 700; font-size: 13px; padding: 4px 10px; border: 1.5px solid var(--hair); border-radius: 6px; background: var(--surface); white-space: nowrap; }
   .stage .label.grp { border-color: var(--green); color: var(--green); }
+  .stage .gsearch { font-size: 12px; color: var(--green); border: 1px solid var(--green); border-radius: 12px; padding: 2px 8px; margin: 0 6px; cursor: pointer; white-space: nowrap; }
+  .stage .gsearch:hover { background: var(--green-soft); }
   .stage .label .n { font-weight: 400; color: var(--muted); margin-left: 2px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 13px;
     border: 1px solid var(--hair); background: var(--bg); cursor: pointer; white-space: nowrap; }
@@ -508,10 +510,25 @@
     var label = '<span class="label' + (kids.length ? ' grp' : '') + (fold ? ' fold' : '') + '"'
       + (fold ? ' onclick="opened[\'' + s.id + '\']=!opened[\'' + s.id + '\'];render()"' : '') + '>'
       + (fold ? (opened[s.id] ? '▾ ' : '▸ ') : '') + esc(s.label) + ' <span class="n">' + total + '</span></span>';
+    // A・B・C などのまとまりごとに、まとめて今すぐ検索（2026-10-24）
+    if (GROUP_SEARCH[s.id] && groupSearchNames(s.id).length) label += '<span class="gsearch" title="この中の全員をまとめて今すぐ検索" onclick="groupSearch(\'' + s.id + '\')">🔍 まとめて検索</span>';
     var chips = (COLLAPSED[s.id] && !opened[s.id]) ? '' : list.map(chipHtml).join('');
     var html = '<li><div class="stage">' + label + chips + '</div>';
     if (kids.length) html += '<ul>' + kids.map(stageHtml).join('') + '</ul>';
     return html + '</li>';
+  }
+
+  var GROUP_SEARCH = { registered: 1, A: 1, B: 1, C: 1, none: 1 };
+  function groupSearchNames(id) {
+    var out = inStage(id).filter(function (c) { return c.hasCriteria; }).map(function (c) { return c.name; });
+    stageKids(id).forEach(function (k) { out = out.concat(groupSearchNames(k.id)); });
+    return out;
+  }
+  function groupSearch(id) {
+    var names = groupSearchNames(id), st = data.stages.filter(function (x) { return x.id === id; })[0];
+    if (!names.length) { toast('検索できる人がいません'); return; }
+    if (!confirm((st ? st.label : id) + 'の' + names.length + '人をまとめて検索します（おすすめ条件も）。よろしいですか？')) return;
+    searchNow(names);
   }
 
   function groupButtons(c) {
