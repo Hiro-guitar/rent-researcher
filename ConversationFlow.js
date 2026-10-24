@@ -782,7 +782,8 @@ function startAutoFollowupQuestions(replyToken, userId, leadText) {
     return qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r);
   });
   var head = leadText ? (leadText + '\n\n') : '';
-  replyMessage(replyToken, [
+  // 条件登録の画面から送信したときは返信の口が無いので、push で送る
+  (replyToken ? function (m) { replyMessage(replyToken, m); } : function (m) { pushMessage(userId, m); })([
     textMsgWithQuickReply(
       head + _flowGauge_(STEPS.REASON) + '\n\nお引越しの理由を教えてください。',
       items

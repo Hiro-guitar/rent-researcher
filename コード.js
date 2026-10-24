@@ -2364,6 +2364,15 @@ function processCriteriaSelection(userId, criteria) {
     writeToSheet(userId, state);
     clearState(userId);
 
+    // 空室確認カードの緑「この条件をもとに登録する」から来た人は、理由・居住者・年齢・入居時期をまだ聞いていない。続けて聞く。
+    // ⚠️ この画面の送信はここを通る（ConversationFlow の confirm_ok は通らない）。confirm_ok にだけ書いてあったので、
+    //   緑から登録した人には入居時期などを一度も聞いていなかった（2026-10-24）
+    if (state.fromVacancyEdit && typeof startAutoFollowupQuestions === 'function') {
+      if (typeof recordVacancyCardPressed === 'function') { try { recordVacancyCardPressed(userId, '登録完了（緑）'); } catch (_eR) {} }
+      startAutoFollowupQuestions(null, userId, 'ご登録ありがとうございます。この条件でお探しします。');
+      return { success: true, message: '条件を登録しました。' };
+    }
+
     pushMessage(userId, [
       buildConditionSummaryFlex(state, 'ご登録ありがとうございます'),
       textMsg(_criteriaCardFollowupText_())
