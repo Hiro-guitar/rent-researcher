@@ -2267,11 +2267,18 @@
       ev.preventDefault();
       // この画面の中の写真を動かしただけ（ほかの写真の上以外で離した）なら足さない
       if (ed.sel.indexOf((ev.dataTransfer.getData('text/uri-list') || '').split('\n')[0].trim()) >= 0) return;
-      var dt = ev.dataTransfer, files = Array.prototype.filter.call(dt.files || [], function (f) { return /^image\//.test(f.type); });
+      var dt = ev.dataTransfer, files = Array.prototype.filter.call(dt.files || [], function (f) { return /^image\//.test(f.type) || /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(f.name || ''); });
       if (files.length) { edUpload(files); return; }
-      var u = (dt.getData('text/uri-list') || dt.getData('text/plain') || '').split('\n')[0].trim();
+      // ⚠️ 別のページの写真は、リンクの付いた写真だと uri-list がリンク先（写真ではないページ）になる。HTML の <img src> を先に見る（2026-10-24）
+      var u = '';
+      try { var m = (dt.getData('text/html') || '').match(/<img[^>]+src=["']([^"']+)["']/i); if (m) u = m[1].replace(/&amp;/g, '&'); } catch (eH) {}
+      if (!u) u = (dt.getData('text/uri-list') || dt.getData('text/plain') || '').split('\n')[0].trim();
+      if (/^data:image\//.test(u)) {   // 写真そのものが入っている（検索結果の写真など）→ ファイルにして上げる
+        try { fetch(u).then(function (r) { return r.blob(); }).then(function (b) { edUpload([new File([b], 'drop.' + ((b.type.split('/')[1]) || 'png'), { type: b.type })]); }); } catch (eD) { toast('写真を読み取れませんでした'); }
+        return;
+      }
       if (/^https?:\/\//.test(u)) { ed.d.all.push(u); ed.sel.push(u); drawEdit(); toast('写真を足しました（保存のときに置き直します）'); }
-      else toast('写真を読み取れませんでした');
+      else toast('写真を読み取れませんでした。うまくいかないときは、写真を一度デスクトップに保存してからドラッグするか「＋ 写真を足す」で');
     });
     document.addEventListener('paste', function (ev) {
       if (!ed || !ed.d) return;
@@ -2284,8 +2291,9 @@
   var edDrag = -1;
   // ⚠️ 並び替えの drop は、外側（写真を足す drop）まで届かせないこと。届くと、動かした写真が末尾にもう1枚足されていた（2026-10-12）
   function edDrop(i, ev) {
+    if (edDrag < 0) return;   // 外から持ってきた写真は、写真の上で離しても外側（足す方）に任せる。⚠️ ここで止めていて、写真の上で離すと何も起きなかった（2026-10-24）
     if (ev) { ev.preventDefault(); ev.stopPropagation(); }
-    if (edDrag < 0 || edDrag === i) { edDrag = -1; return; }
+    if (edDrag === i) { edDrag = -1; return; }
     var u = ed.sel.splice(edDrag, 1)[0]; ed.sel.splice(i, 0, u); edDrag = -1; drawEdit();
   }
   function edMove(i, dir) { var j = i + dir; if (j < 0 || j >= ed.sel.length) return; var t = ed.sel[i]; ed.sel[i] = ed.sel[j]; ed.sel[j] = t; drawEdit(); }
