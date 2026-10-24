@@ -5788,7 +5788,11 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     const watchCheckedCustomers = new Set();
 
     for (let ci = 0; ci < criteria.length; ci++) {
-      if (isSearchCancelled(searchId)) return;
+      if (isSearchCancelled(searchId)) {
+        // 止めたとき、前の条件（同じお客様のおすすめ条件の途中など）で貯めた物件も新着に入れる
+        if (globalThis._parallelCycle && ci > 0) { try { await flushBatchBufferForCustomer(criteria[ci - 1].name); } catch (_) {} }
+        return;
+      }
       const customer = criteria[ci];
       // 顧客フィルタのリストで「いま検索中の条件」をハイライトするためのキー
       await setStorageData({
@@ -6006,7 +6010,10 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
       }
 
       // --- 一括モード（または4サイト同時）: この顧客分だけ重複排除＆通知 ---
-      if (notifyMode === 'batch' || globalThis._parallelCycle) {
+      // ⚠️ おすすめ条件はお客様ごとに別の条件として続けて回る。条件ごとに入れていたので、そのお客様の検索中に新着が増えていた（2026-10-24）。
+      //   同じお客様の条件が全部終わってから入れる（おすすめ条件どうしの重なり・申込ありもまとめて見られる）
+      const _nextSame = criteria[ci + 1] && criteria[ci + 1].name === customer.name;
+      if ((notifyMode === 'batch' || globalThis._parallelCycle) && !_nextSame) {
         try { await flushBatchBufferForCustomer(customer.name); }
         catch (err) { logError(`[system] ${customer.name}: 一括通知エラー: ${err.message}`); }
       }
