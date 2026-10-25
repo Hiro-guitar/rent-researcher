@@ -1646,10 +1646,16 @@ function saveCrmMemo(customerName, text) {
   if (last > 1) {
     var names = sh.getRange(2, 1, last - 1, 1).getValues();
     for (var i = 0; i < names.length; i++) {
-      if (String(names[i][0] || '').trim() === customerName) { sh.getRange(i + 2, 2, 1, 2).setValues([[text, new Date()]]); return true; }
+      if (String(names[i][0] || '').trim() === customerName) {
+        sh.getRange(i + 2, 2, 1, 2).setValues([[text, new Date()]]);
+        try { cfSyncRows(CRM_MEMO_SHEET, [i + 2], 'メモ'); } catch (eCf) {}
+        return true;
+      }
     }
   }
   sh.appendRow([customerName, text, new Date()]);
+  // ⚠️ GAS版の画面から書いたメモは、Cloudflare版（スマホ）の写しに届いていなかった（2026-10-25）。書いたらすぐ送る
+  try { cfSyncRows(CRM_MEMO_SHEET, [sh.getLastRow()], 'メモ'); } catch (eCf2) {}
   return true;
 }
 

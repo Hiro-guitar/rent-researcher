@@ -137,6 +137,8 @@
   .recrow { padding: 6px 0; border-bottom: 1px solid var(--hair); font-size: 13px; }
   .recrow.off { opacity: .6; }
   .recrow .pl a { margin-right: 10px; font-size: 12px; }
+  .critref { border: 1px dashed var(--hair); border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; background: var(--surface); }
+  .critref .reftxt { font-size: 13px; line-height: 1.6; margin: 2px 0 6px; overflow-wrap: anywhere; }
   .csum { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; margin: 4px 0 6px; }
   .csum .k { color: var(--muted); white-space: nowrap; }
   .csum .v { min-width: 0; overflow-wrap: anywhere; }
@@ -752,8 +754,13 @@
   // ── 右側の追加情報（問い合わせた物件・条件を入れる・メモ）。画面を開いた時点で全員分を持っている ──
   var extras = {};   // 顧客名 → { memo, memoDraft, formUrl, formLoading }
   function loadExtra(name) {
-    if (extras[name]) return;
     var c = data.customers.filter(function (x) { return x.name === name; })[0] || {};
+    if (extras[name]) {
+      // ほかの端末で書いたメモが届いたら入れ替える（こちらで書きかけのときは触らない）。⚠️ 最初に読んだメモのままだった（2026-10-25）
+      var x = extras[name];
+      if (c.memo != null && c.memo !== x.memo && x.memoDraft === x.memo && document.activeElement !== document.getElementById('memo')) { x.memo = c.memo; x.memoDraft = c.memo; }
+      return;
+    }
     extras[name] = { memo: c.memo || '', memoDraft: c.memo || '' };
   }
   function extraHtml(c) {
@@ -816,6 +823,15 @@
     if (c.lineOnly) return '<div class="meta">名前がまだ分からないので、条件は入れられません。LINEで名前を聞いてから入れてください。</div>';
     var f = critOf(c.name), x = extras[c.name];
     var h = '<div class="crit">';
+    // メモとお問い合わせの内容を見ながら入れられるように、上に出す（ここでは見るだけ。書き直しは右のメモ欄で）2026-10-25
+    var memoTxt = String((x && (x.memoDraft != null ? x.memoDraft : x.memo)) || '').trim();
+    var inqTxt = (c.inquiries || []).filter(function (q) { return q.content; }).map(function (q) { return (q.date ? esc(q.date) + ' ' : '') + esc(q.content); });
+    if (memoTxt || inqTxt.length) {
+      h += '<div class="critref">'
+        + (memoTxt ? '<div class="critttl">📝 メモ</div><div class="reftxt">' + esc(memoTxt).replace(/\n/g, '<br>') + '</div>' : '')
+        + (inqTxt.length ? '<div class="critttl">💬 お問い合わせの内容</div><div class="reftxt">' + inqTxt.join('<br>') + '</div>' : '')
+        + '</div>';
+    }
     h += '<div class="tabs"><button class="' + (f.areaMethod !== 'city' ? 'on' : '') + '" onclick="critSet(\'areaMethod\',\'route\',true)">路線・駅</button>'
       + '<button class="' + (f.areaMethod === 'city' ? 'on' : '') + '" onclick="critSet(\'areaMethod\',\'city\',true)">市区町村</button></div>';
     if (f.areaMethod !== 'city') {
