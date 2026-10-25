@@ -27,7 +27,65 @@ async function isSync(req, env) {
   return (await sha256(t)) === (await cfg(env, 'sync_hash'));
 }
 
+// ── 保存の受け付け（outbox）2026-10-25 ──
+// 画面の保存は受け付けた時点で「済み」を返す。GAS（スプレッドシート）へは、ここで古い順に1件ずつ書く。
+// ⚠️ 順番を守ること（後の保存が先の保存を上書きしないように）。同時に2つ動かないよう config の outbox_lock で1本にする
+async function gasCrmCall(env, key, body) {
+  const r1 = await fetch(env.GAS_URL + '?action=crm_call&key=' + encodeURIComponent(key), {
+    method: 'POST', body, headers: { 'content-type': 'text/plain' }, redirect: 'manual',
+  });
+  const loc = r1.headers.get('location');
+  const r = loc ? await fetch(loc) : r1;
+  return { status: r.status, text: await r.text() };
+}
+async function outboxErr(env, row, msg) {
+  let list = [];
+  try { list = JSON.parse((await cfg(env, 'outbox_err')) || '[]'); } catch (e) {}
+  list.push({ id: row.id, fn: row.fn, msg: String(msg).slice(0, 300), at: Date.now() });
+  await setCfg(env, 'outbox_err', JSON.stringify(list.slice(-20))).run();
+}
+async function drainOutbox(env) {
+  let first = null;
+  try { first = await env.DB.prepare('SELECT id FROM outbox ORDER BY id LIMIT 1').first(); } catch (e) { return; }
+  if (!first) return;
+  const now = Date.now();
+  // 1本だけ動かす（60秒たっても外れていない鍵は、止まったものとみなして取る）
+  const lk = await env.DB.prepare("INSERT INTO config (k, v) VALUES ('outbox_lock', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v WHERE CAST(config.v AS INTEGER) < ?")
+    .bind(String(now), now - 60000).run();
+  if (!lk.meta || !lk.meta.changes) return;
+  try {
+    while (Date.now() - now < 25000) {
+      const row = await env.DB.prepare('SELECT id, k, body, fn, tries FROM outbox ORDER BY id LIMIT 1').first();
+      if (!row) break;
+      let o = null, netErr = '';
+      try {
+        const out = await gasCrmCall(env, row.k, row.body);
+        try { o = JSON.parse(out.text); } catch (e) { netErr = 'GAS ' + out.status; }
+      } catch (e) { netErr = e.message; }
+      if (o) {
+        // GAS が答えた（成功でも、GAS の中の失敗でも）。失敗はやり直しても同じなので、知らせて次へ
+        if (!o.ok) await outboxErr(env, row, o.error || 'GASで失敗');
+        await env.DB.prepare('DELETE FROM outbox WHERE id = ?').bind(row.id).run();
+        continue;
+      }
+      // 通信の失敗: 5回まではあとでやり直す（1分ごとの見回りでも拾う）
+      if (row.tries >= 5) {
+        await outboxErr(env, row, netErr || 'GASにつながりません');
+        await env.DB.prepare('DELETE FROM outbox WHERE id = ?').bind(row.id).run();
+        continue;
+      }
+      await env.DB.prepare('UPDATE outbox SET tries = tries + 1 WHERE id = ?').bind(row.id).run();
+      break;
+    }
+  } finally {
+    await env.DB.prepare("UPDATE config SET v = '0' WHERE k = 'outbox_lock'").run();
+  }
+}
+
 export default {
+  // 1分ごとの見回り: 書き残した保存があれば書く（ふだんは1行読むだけ）
+  async scheduled(event, env, ctx) { ctx.waitUntil(drainOutbox(env)); },
+
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
     const path = url.pathname;
@@ -146,7 +204,11 @@ export default {
     if (path === '/api/delta') {
       const now = Date.now();
       const since = Number(url.searchParams.get('since') || 0);
-      const { results } = await env.DB.prepare("SELECT sheet, r, v FROM sheet_rows WHERE u > ? AND sheet NOT LIKE '%#new' ORDER BY sheet, r LIMIT 20000").bind(since).all();
+      // ⚠️ ORDER BY sheet, r や NOT LIKE を付けると、D1 が u の索引を使わず表をまるごと（約2万4千行）読んでいた。
+      //   1日200回で480万行になり、無料の読み取り上限を超えた（2026-10-25）。u だけで引いて、並べ替え・#new 除きは手元でする
+      const got = (await env.DB.prepare('SELECT sheet, r, v FROM sheet_rows WHERE u > ? LIMIT 20000').bind(since).all()).results;
+      const results = got.filter((x) => !String(x.sheet).endsWith('#new'))
+        .sort((a, b) => (a.sheet < b.sheet ? -1 : a.sheet > b.sheet ? 1 : a.r - b.r));
       const meta = await env.DB.prepare('SELECT sheet, rows, synced_at FROM sheet_meta').all();
       return new Response('{"now":' + now + ',"rows":[' + results.map((x) => '[' + JSON.stringify(x.sheet) + ',' + x.r + ',' + x.v + ']').join(',') + '],"meta":' + JSON.stringify(meta.results) + ',"ver":' + (Number(await cfg(env, 'ver')) || 0) + '}', {
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
@@ -154,10 +216,42 @@ export default {
     }
 
     // 画面のボタン → GAS の関数（crm_call）。鍵は Cookie から GAS に渡す。中身はそのまま流す（大きい写真でも CPU を使わない）
+    // 受け付けた保存がまだ残っているか（画面が、自分の保存が書き終わったかを見る。保存待ちがある間だけ2秒ごと）
+    if (path === '/api/outbox') {
+      const st = await env.DB.prepare('SELECT MIN(id) AS m, COUNT(*) AS n FROM outbox').first();
+      let errs = [];
+      try { errs = JSON.parse((await cfg(env, 'outbox_err')) || '[]'); } catch (e) {}
+      return json({ min: (st && st.m) || 0, n: (st && st.n) || 0, errs }, 200, { 'cache-control': 'no-store' });
+    }
+
     if (path === '/api/call' && req.method === 'POST') {
       const key = cookieOf(req, 'crm_key');
       // GAS は答えを googleusercontent に置いて 302 で返す。POST のまま追うと失敗するので、転送先は GET で取りに行く
       const body = await req.text();
+      let pb = {};
+      try { pb = JSON.parse(body); } catch (e) {}
+      // 画面が先に済ませた保存（q）は、受け付けてすぐ返す。GAS へは後ろで順番に（2026-10-25）
+      if (pb.q) {
+        let ins = null;
+        try {
+          ins = await env.DB.prepare('INSERT INTO outbox (k, body, fn, created) VALUES (?, ?, ?, ?)')
+            .bind(key, JSON.stringify({ fn: pb.fn, args: pb.args, lite: true }), String(pb.fn || ''), Date.now()).run();
+        } catch (eIns) { ins = null; }   // 受け付けられない（表が無い・上限など）ときは、下の今までどおりの道へ
+        if (ins) {
+          ctx.waitUntil(drainOutbox(env).catch(() => {}));
+          return json({ ok: true, result: { lite: true, queued: true, id: ins.meta.last_row_id } });
+        }
+      }
+      // 受け付け済みの保存が残っていたら、先にそれを書き終えてから（順番を守る）。読むだけの呼び出し（get…）は待たない
+      if (!/^get/.test(String(pb.fn || ''))) {
+        for (let i = 0; i < 40; i++) {
+          let left = null;
+          try { left = await env.DB.prepare('SELECT id FROM outbox LIMIT 1').first(); } catch (eL) { left = null; }
+          if (!left) break;
+          await drainOutbox(env).catch(() => {});
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
       // ⚠️ GAS への呼び出しは waitUntil で最後までやり切る。スマホで送信中に Chrome を閉じる・別のアプリに移ると、
       //   画面との接続が切れて、ここでの処理ごと止められることがある（2026-10-13）。GAS に届けば GAS 側は最後まで動く
       const job = (async () => {

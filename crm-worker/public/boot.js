@@ -42,6 +42,33 @@
 
   function say(t) { var el = document.getElementById('bootMsg'); if (el) el.textContent = t; }
 
+  // ── 受け付けてもらった保存が、GAS に書き終わったかを見る（自分の保存が残っている間だけ2秒ごと）──
+  var myOutbox = {}, outboxTimer = 0, outboxSince = 0, seenErr = {};
+  function trackOutbox(id, fn) {
+    myOutbox[id] = fn; if (!outboxSince) outboxSince = Date.now();
+    clearTimeout(outboxTimer); outboxTimer = setTimeout(checkOutbox, 1500);
+  }
+  function checkOutbox() {
+    var ids = Object.keys(myOutbox).map(Number);
+    if (!ids.length) { outboxSince = 0; return; }
+    fetch('/api/outbox', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (st) {
+      var failed = [];
+      (st.errs || []).forEach(function (e) { if (myOutbox[e.id] !== undefined && !seenErr[e.id]) { seenErr[e.id] = 1; failed.push(e); } });
+      ids.forEach(function (id) {
+        if (!st.n || id < st.min) { delete myOutbox[id]; savedOne(); }
+      });
+      if (failed.length) {
+        // 書けなかった保存がある: 画面は手元で先に変えてあるので、本物に合わせて読み直す
+        var msg = '保存できなかったものがあります（' + failed.map(function (e) { return e.msg; }).join(' / ') + '）。画面を読み直します';
+        try { if (typeof window.toast === 'function') window.toast(msg); else alert(msg); } catch (eT) {}
+        setTimeout(function () { location.reload(); }, 3500);
+        return;
+      }
+      if (Object.keys(myOutbox).length) outboxTimer = setTimeout(checkOutbox, Date.now() - outboxSince > 60000 ? 5000 : 2000);
+      else outboxSince = 0;
+    }).catch(function () { outboxTimer = setTimeout(checkOutbox, 5000); });
+  }
+
   // 写しの差分を取り込む（書いたあと・読み直すとき）
   var deltaP = null;
   // ⚠️ 手元で先に書いた保存が GAS に届くまでは、写しの差分を取り込まない（2026-10-08）。
@@ -74,8 +101,8 @@
     return deltaP;
   }
 
-  function gasCall(fn, args, lite) {
-    return fetch('/api/call', { method: 'POST', body: JSON.stringify({ fn: fn, args: args, lite: !!lite }), headers: { 'content-type': 'text/plain' } })
+  function gasCall(fn, args, lite, q) {
+    return fetch('/api/call', { method: 'POST', body: JSON.stringify({ fn: fn, args: args, lite: !!lite, q: !!q }), headers: { 'content-type': 'text/plain' }, keepalive: !!q })
       .then(function (r) { return r.json(); })
       .then(function (o) {
         if (!o || !o.ok) throw new Error((o && o.error) || 'GASから答えがありません');
@@ -129,6 +156,15 @@
       var pre = (preApplied.length && preApplied[0].name === name) ? preApplied.shift() : null;
       if (!pre) { if (inflight === 0) inflightSince = Date.now(); inflight++; }
       var localRes = pre ? pre.res : runLocal(name, args);
+      // 手元で先に済ませられた保存は、Cloudflare に受け付けてもらってすぐ「済み」にする。GAS には後ろで順番に書かれる（2026-10-25）。
+      // ⚠️ 書き終わるまでは写しの差分を取り込まない（inflight はそのまま）。取り込むと、まだ本物に無い変更が消えて元に戻って見える
+      if (localRes) {
+        return gasCall(name, args, true, true).then(function (r) {
+          if (r && r.queued) { trackOutbox(r.id, name); return { savedMessage: localRes.savedMessage }; }
+          savedOne(); refreshDelta().catch(function () {});
+          return (r && r.lite) ? { savedMessage: r.savedMessage || localRes.savedMessage } : r;
+        }, function (e) { savedOne(); throw e; });
+      }
       return gasCall(name, args, !!localRes).then(function (r) {
         savedOne();
         refreshDelta().catch(function () {});
