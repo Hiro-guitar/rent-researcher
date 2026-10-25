@@ -906,7 +906,18 @@
     if (f.petType) rows.push(['ペット', esc(f.petType)]);
     if (f.carModel) rows.push(['車種', esc(f.carModel)]);
     rows.push(['引越し希望日', f.moveIn ? esc(f.moveIn) + (f.moveInStrict ? '（厳守）' : '') : '']);
-    if (f.notes) rows.push(['その他', esc(f.notes).replace(/\n/g, '<br>')]);
+    if (f.earlyMonths !== undefined && String(f.earlyMonths).trim() !== '') rows.push(['早すぎる物件', '入居できるのが希望より' + esc(f.earlyMonths) + 'ヶ月以上前なら外す']);
+    if (f.minFloor) rows.push(['階数', esc(f.minFloor) + '階以上']);
+    if (f.allowedFloors) rows.push(['希望の階', esc(f.allowedFloors)]);
+    if (f.roomDigitSums) rows.push(['部屋番号', '数字の合計が ' + esc(f.roomDigitSums)]);
+    rows.push(['その他のご希望', f.notes ? esc(f.notes).replace(/\n/g, '<br>') : '']);
+    // お客様のこと（2026-10-25）。まだ聞けていなければ「未回答」と出す
+    var na = '<span class="meta">未回答</span>';
+    if (f.reason !== undefined) {
+      rows.push(['引越し理由', f.reason ? esc(f.reason) : na]);
+      rows.push(['住む方', f.resident ? esc(f.resident) : na]);
+      rows.push(['年齢', f.personAge ? esc(f.personAge) : na]);
+    }
     return '<div class="csum">' + rows.map(function (r) {
       return '<div class="k">' + r[0] + '</div><div class="v">' + (r[1] || '<span class="meta">指定なし</span>') + '</div>';
     }).join('') + '</div>' + (x.critSaving ? '<div class="meta">保存中…</div>' : '') + '<div class="acts">' + btn + '</div>';

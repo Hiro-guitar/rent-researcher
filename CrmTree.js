@@ -1714,6 +1714,15 @@ function _crmCriteriaAll_() {
     var name = String(data[i][1] || '').trim();
     if (!name) continue;
     out[name] = _crmRowToCrit_(data[i]);
+    // 画面に見せるだけの項目（お客様のこと・階数など）。おすすめ条件の行は列が違うので、ここ（本人の条件）でだけ足す（2026-10-25）
+    var r = data[i];
+    out[name].reason = String(r[13] || '');          // N: 引越し理由
+    out[name].resident = String(r[17] || '');        // R: 住む方
+    out[name].personAge = String(r[27] || '');       // AB: 年齢
+    out[name].earlyMonths = String(r[35] || '');     // AJ: 入居可能が早すぎる物件を外す（月数）
+    out[name].allowedFloors = String(r[41] || '');   // AP: 希望階数
+    out[name].roomDigitSums = String(r[42] || '');   // AQ: 部屋番号の数字の合計
+    out[name].minFloor = String(r[43] || '');        // AR: 最低階数
   }
   return out;
 }
