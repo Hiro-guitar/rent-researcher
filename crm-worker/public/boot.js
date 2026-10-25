@@ -141,6 +141,8 @@
         throw e;
       });
     }
+    // 検索中かどうかを聞くだけ（2分・20秒ごと）。写しの取り直しはしない（D1を読まない）
+    if (name === 'getCrmSearchStatus') return gasCall(name, args);
     if (LOCAL[name]) return new Promise(function (res, rej) { setTimeout(function () { try { LOCAL[name].apply(null, args).then(res, rej); } catch (e) { rej(e); } }, 0); });
     // 書くもの: GAS で書く → 写しにはGASがすぐ送る → 手元の写しも取り直しておく
     return gasCall(name, args).then(function (r) { refreshDelta().catch(function () {}); return r; });

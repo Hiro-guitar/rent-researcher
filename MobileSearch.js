@@ -219,8 +219,31 @@ function setCrmSearchNow(customerNames, keysOpt) {
 function getCrmSearchStatus() {
   var props = PropertiesService.getScriptProperties();
   var req = null; try { req = JSON.parse(props.getProperty(MOBILE_SEARCH_KEY) || 'null'); } catch (e) {}
+  var live = null; try { live = JSON.parse(props.getProperty(CRM_SEARCH_LIVE_KEY) || 'null'); } catch (e2) {}
   var seen = Number(props.getProperty(MOBILE_SEARCH_SEEN) || 0);
-  return { req: req, seenMs: seen, seenAgo: _mobileAgo_(seen), now: Date.now() };
+  return { req: req, live: live, seenMs: seen, seenAgo: _mobileAgo_(seen), now: Date.now() };
+}
+
+// ── いま検索中か（どの始め方の検索でも。拡張が1人ごとに知らせる）2026-10-25 ──
+// ⚠️ スマホ・CRMから頼んだ検索（MOBILE_SEARCH_KEY）とは別に持つ。あちらは「頼んだ → 受け取った」の順番待ちにも使っているので混ぜない
+var CRM_SEARCH_LIVE_KEY = 'CRM_SEARCH_LIVE';
+/** 拡張から: { phase: 'progress'|'finished', pos, total, name, found, cancelled } */
+function handleSearchLive(json) {
+  var lock = LockService.getScriptLock(); try { lock.waitLock(10000); } catch (eL) {}
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var live = null; try { live = JSON.parse(props.getProperty(CRM_SEARCH_LIVE_KEY) || 'null'); } catch (e) {}
+    var now = Date.now(), pos = Number(json.pos) || 0;
+    if (json.phase === 'finished') {
+      if (live) { live.status = json.cancelled ? 'stopped' : 'finished'; live.finishedAt = now; live.found = Number(json.found) || 0; }
+    } else {
+      // 1人目、または前の検索が終わっていたら、新しい検索として始める
+      if (!live || live.status !== 'running' || pos <= 1) live = { status: 'running', startedAt: now };
+      live.progress = { pos: pos, total: Number(json.total) || 0, name: String(json.name || ''), at: now };
+    }
+    if (live) props.setProperty(CRM_SEARCH_LIVE_KEY, JSON.stringify(live));
+  } finally { try { lock.releaseLock(); } catch (eR) {} }
+  return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
 }
 
 /** 拡張から: 頼まれた検索の進み具合（何人目か） */

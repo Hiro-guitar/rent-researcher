@@ -73,6 +73,13 @@ function doPost(e) {
       }
       return handleSearchRequestProgress(json);
     }
+    // --- どの始め方の検索でも、いま検索中か・何人目かを知らせる (Chrome拡張から。CRMの上に出す) ---
+    if (json.action === 'search_live') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return handleSearchLive(json);
+    }
     if (json.action === 'search_request_finished') {
       if (!_validateReinsApiKey(json.api_key)) {
         return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);

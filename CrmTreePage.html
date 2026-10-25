@@ -1853,7 +1853,7 @@
     };
     searchAck = function (a) {
       if (done) return; done = true; searchAck = null;
-      if (a.started) toast(label + 'の検索を始めました（結果は新着とDiscordに入ります）');
+      if (a.started) { toast(label + 'の検索を始めました（結果は新着とDiscordに入ります）'); setTimeout(watchSearchReq, 10000); }
       else viaGas('いまほかの検索が動いているので、終わったら始めます');
     };
     // all::名前 … 本人の条件だけでなく、こちらで登録したおすすめ条件もいっしょに検索する
@@ -1865,15 +1865,39 @@
   function watchSearchReq() {
     clearTimeout(searchReqTimer);
     google.script.run.withSuccessHandler(function (st) {
+      var wasRunning = searchLiveRunning(searchReq);
       searchReq = st; renderSearchReq();
       var r = st && st.req;
-      if (r && r.status !== 'finished' && Date.now() - (r.requestedAt || 0) < 3 * 3600000) searchReqTimer = setTimeout(watchSearchReq, 20000);
-      else if (r && r.status === 'finished') { try { if (window.__checkNow) window.__checkNow(true); } catch (e) {} }
-    }).withFailureHandler(function () { searchReqTimer = setTimeout(watchSearchReq, 60000); }).getCrmSearchStatus();
+      var busy = searchLiveRunning(st) || (r && r.status !== 'finished' && Date.now() - (r.requestedAt || 0) < 3 * 3600000);
+      // 検索中は20秒ごと、そうでなければ2分ごとに見る（GASに聞くだけ。データベースは読まない）
+      searchReqTimer = setTimeout(watchSearchReq, busy ? 20000 : 120000);
+      if ((r && r.status === 'finished') || (wasRunning && !busy)) { try { if (window.__checkNow) window.__checkNow(true); } catch (e) {} }
+    }).withFailureHandler(function () { searchReqTimer = setTimeout(watchSearchReq, 120000); }).getCrmSearchStatus();
+  }
+  // 拡張が「いま何人目」を最後に知らせてから20分たっていたら、止まった（PCが閉じた等）とみなす
+  setTimeout(function () { try { watchSearchReq(); } catch (e) { setTimeout(watchSearchReq, 10000); } }, 2000);   // 開いたときにも、いま検索中かを見る
+  function searchLiveRunning(st) {
+    var lv = st && st.live;
+    return !!(lv && lv.status === 'running' && lv.progress && Date.now() - (lv.progress.at || 0) < 20 * 60000);
   }
   function renderSearchReq() {
     var el = document.getElementById('searchReq'); if (!el) return;
-    var st = searchReq, r = st && st.req;
+    var st = searchReq, r = st && st.req, lv = st && st.live;
+    var t0 = function (ms) { var d = new Date(ms); return d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2); };
+    // どの始め方の検索でも、いま検索中ならそれを出す（2026-10-25）
+    if (searchLiveRunning(st)) {
+      var p = lv.progress;
+      el.innerHTML = '⏳ PCで検索中 ' + p.pos + '/' + p.total + '人目（' + esc(p.name) + '・' + t0(p.at) + '〜）'
+        + ' <span class="pbar"><i style="width:' + Math.round(100 * (p.pos - 1) / (p.total || 1)) + '%"></i></span>'
+        + '<span class="meta">（' + t0(lv.startedAt) + 'に開始）</span>';
+      return;
+    }
+    // 頼んだ検索がまだ始まっていなければ、そちら（下の今までの表示）。終わった検索は、頼んだものより新しければこちらを出す
+    var liveEnd = lv && lv.status !== 'running' ? (lv.finishedAt || 0) : 0;
+    if (liveEnd && Date.now() - liveEnd < 3 * 3600000 && !(r && r.status !== 'finished' && (r.requestedAt || 0) > liveEnd) && !(r && (r.finishedAt || 0) >= liveEnd)) {
+      el.innerHTML = (lv.status === 'stopped' ? '⏹ 検索を止めました ' : '✓ 検索が終わりました ') + t0(liveEnd) + '（新着 ' + (lv.found || 0) + '件）';
+      return;
+    }
     if (!r || Date.now() - (r.finishedAt || r.requestedAt || 0) > 6 * 3600000) { el.innerHTML = ''; return; }
     var t = function (ms) { var d = new Date(ms); return d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2); };
     var who = (r.keys || []).map(function (k) { return String(k).replace(/^all::/, '').replace(/^rec::.*/, 'おすすめ条件'); }).join('・') || 'いつもの全員';

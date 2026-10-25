@@ -5801,6 +5801,10 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
         currentSearchingPos: `${ci + 1}/${criteria.length}`,
         debugLog: `━━ 顧客 ${ci+1}/${criteria.length}: ${customer.name} ━━`
       });
+      // どの始め方の検索でも、いま何人目かをGASに知らせる（CRMの上に「⏳ PCで検索中 2/5人目」と出す）。待たない
+      globalThis.__liveStarted = true;
+      gasPost({ action: 'search_live', phase: 'progress', pos: ci + 1, total: criteria.length,
+        name: customer.name + (customer.recommend ? '（おすすめ: ' + (customer.recommendLabel || '') + '）' : '') }).catch(() => {});
       // スマホ・CRMから頼まれた検索なら、いま何人目かをGASに知らせる（CRMの画面に「2/5人目」と出す）。待たない
       if (globalThis._mobileReqId) {
         gasPost({ action: 'search_request_progress', id: globalThis._mobileReqId, pos: ci + 1, total: criteria.length,
@@ -6085,6 +6089,12 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
           cancelled: isSearchCancelled(searchId) }));
         if (results.length) gasPost({ action: 'record_search_results', results }).catch(e => console.warn('[検索結果] 送れません: ' + e.message));
       } catch (eSr) { console.warn('[検索結果] ' + eSr.message); }
+    }
+    // CRMの上の「検索中」を「終わりました」にする（どの始め方の検索でも）
+    if (globalThis.__liveStarted) {
+      globalThis.__liveStarted = false;
+      let _fAll = 0; try { Object.keys(discordPropertyCounters).forEach(k => { _fAll += discordPropertyCounters[k] || 0; }); } catch (_) {}
+      gasPost({ action: 'search_live', phase: 'finished', found: _fAll, cancelled: isSearchCancelled(searchId) }).catch(() => {});
     }
     // スマホ・CRMから頼まれた検索なら、終わったことをGASに返す（新着の件数つき）
     if (globalThis._mobileReqId) {
