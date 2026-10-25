@@ -1950,10 +1950,14 @@
       //   Safari 本体で開かせる（x-safari-https:// … iOS 17 以降）。Safari なら「新規連絡先を作成」が出る
       var standalone = window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
       if (standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
-        location.href = 'x-safari-' + location.origin + vurl;
-        // Safari に移れなかったら（古い iOS など）今までどおり別の画面で
-        setTimeout(function () { if (!document.hidden) window.open(vurl, '_blank'); }, 1500);
-        toast('Safariで連絡先を開きます。「新規連絡先を作成」を押してください');
+        // Chrome で開く（googlechromes://）。Chrome が無ければ Safari 本体（x-safari-https://）、それもだめなら別の画面で（2026-10-25 ユーザー希望でChrome優先）
+        location.href = 'googlechromes://' + location.host + vurl;
+        setTimeout(function () {
+          if (document.hidden) return;
+          location.href = 'x-safari-' + location.origin + vurl;
+          setTimeout(function () { if (!document.hidden) window.open(vurl, '_blank'); }, 1500);
+        }, 1500);
+        toast('Chromeで連絡先を開きます。「連絡先に追加」を押してください');
         return;
       }
       window.open(vurl, '_blank');
