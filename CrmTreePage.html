@@ -1929,7 +1929,18 @@
       // 押したその場で開かないと止められるので、番号はここで作り、置くのと開くのを同時にする（サーバーが少し待ってくれる）
       var vid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
       fetch('/api/vcard/' + vid, { method: 'PUT', body: vcf, keepalive: true }).catch(function () {});
-      window.open('/api/vcard/' + vid + '.vcf', '_blank');
+      var vurl = '/api/vcard/' + vid + '.vcf';
+      // ⚠️ ホーム画面に置いたCRMから開く別の画面は、連絡先のファイルを見せられず白い画面になった（2026-10-25）。
+      //   Safari 本体で開かせる（x-safari-https:// … iOS 17 以降）。Safari なら「新規連絡先を作成」が出る
+      var standalone = window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      if (standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+        location.href = 'x-safari-' + location.origin + vurl;
+        // Safari に移れなかったら（古い iOS など）今までどおり別の画面で
+        setTimeout(function () { if (!document.hidden) window.open(vurl, '_blank'); }, 1500);
+        toast('Safariで連絡先を開きます。「新規連絡先を作成」を押してください');
+        return;
+      }
+      window.open(vurl, '_blank');
       toast('連絡先を開きました。「新規連絡先を作成」を押してください');
       return;
     }
