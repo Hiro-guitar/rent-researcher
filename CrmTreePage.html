@@ -896,11 +896,14 @@
       }).join('<br>');
     }
     rows.push([f.areaMethod === 'city' ? '市区町村' : '路線・駅', area]);
-    rows.push(['賃料の上限', f.rentMax ? esc(f.rentMax) + '万円' : '']);
+    // 「指定しない」はそのまま「指定なし」に（⚠️ 単位を付けて「指定しないm²以上」と出ていた 2026-10-25）
+    var sv = function (v) { v = String(v == null ? '' : v).trim(); return /^(指定しない|指定なし)$/.test(v) ? '' : v; };
+    var rent = sv(f.rentMax), walk = sv(f.walk), areaMin = sv(f.areaMin);
+    rows.push(['賃料の上限', rent ? esc(rent) + (/万/.test(rent) ? '' : '万円') : '']);
     rows.push(['間取り', (f.layouts || []).map(esc).join('・')]);
-    rows.push(['駅徒歩', f.walk ? esc(f.walk) + (/^\d+$/.test(String(f.walk)) ? '分以内' : '') : '']);
-    rows.push(['広さ', f.areaMin ? esc(f.areaMin) + (/m/.test(f.areaMin) ? '' : 'm²') + '以上' : '']);
-    rows.push(['築年数', esc(f.age || '')]);
+    rows.push(['駅徒歩', walk ? esc(walk) + (/^\d+$/.test(walk) ? '分以内' : '') : '']);
+    rows.push(['広さ', areaMin ? esc(areaMin) + (/m/.test(areaMin) ? '' : 'm²') + '以上' : '']);
+    rows.push(['築年数', esc(sv(f.age))]);
     rows.push(['構造', (f.structures || []).map(esc).join('・')]);
     rows.push(['こだわり', (f.equipment || []).map(esc).join('・')]);
     if (f.petType) rows.push(['ペット', esc(f.petType)]);
@@ -910,7 +913,7 @@
     if (f.minFloor) rows.push(['階数', esc(f.minFloor) + '階以上']);
     if (f.allowedFloors) rows.push(['希望の階', esc(f.allowedFloors)]);
     if (f.roomDigitSums) rows.push(['部屋番号', '数字の合計が ' + esc(f.roomDigitSums)]);
-    rows.push(['その他のご希望', f.notes ? esc(f.notes).replace(/\n/g, '<br>') : '']);
+    rows.push(['その他', f.notes ? esc(f.notes).replace(/\n/g, '<br>') : '']);
     // お客様のこと（2026-10-25）。まだ聞けていなければ「未回答」と出す
     var na = '<span class="meta">未回答</span>';
     if (f.reason !== undefined) {
