@@ -161,6 +161,28 @@ export default {
     // 電話帳に入れる: 画面が作った連絡先（vCard）をそのまま返す。iPhone は本物のURLから開いたときだけ「新規連絡先を作成」を出す
     // （手元で作ったファイルを開くと、見るだけの画面になり ✓ を押しても追加されなかった 2026-10-13）。
     // ⚠️ 名前・電話番号はURLに載せない（POST の本文で受け取る）
+    // ⚠️ ホーム画面に置いたCRMから開くと、別の画面にフォームの中身が届かず白い画面になった（2026-10-25）。
+    //   いまは「先に置く（PUT /api/vcard/<id>）→ 別の画面で普通のアドレスとして開く（GET /api/vcard/<id>.vcf）」。
+    //   置いた連絡先は1回開いたら消す。id は画面が毎回作る使い捨ての長い番号（名前・電話番号はURLに載らない）
+    const vm = path.match(/^\/api\/vcard\/([A-Za-z0-9-]{20,64})(\.vcf)?$/);
+    if (vm && req.method === 'PUT') {
+      const v = await req.text();
+      if (!/^BEGIN:VCARD/.test(v) || v.length > 4000) return json({ ok: false, error: 'bad vcard' }, 400);
+      await env.DB.prepare("INSERT OR REPLACE INTO config (k, v) VALUES (?, ?)").bind('vcard:' + vm[1], v).run();
+      return json({ ok: true });
+    }
+    if (vm && req.method === 'GET') {
+      // 開く方が置く方より先に着くことがあるので、少し待ちながら見る（最大3秒）
+      let v = null;
+      for (let i = 0; i < 10 && !v; i++) {
+        const row = await env.DB.prepare("SELECT v FROM config WHERE k = ?").bind('vcard:' + vm[1]).first();
+        v = row && row.v;
+        if (!v) await new Promise(r => setTimeout(r, 300));
+      }
+      if (!v) return new Response('連絡先が見つかりません。CRMに戻って、もう一度「電話帳に入れる」を押してください。', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      ctx.waitUntil(env.DB.prepare("DELETE FROM config WHERE k = ?").bind('vcard:' + vm[1]).run());
+      return new Response(v, { headers: { 'content-type': 'text/x-vcard; charset=utf-8', 'content-disposition': 'inline; filename="contact.vcf"', 'cache-control': 'no-store' } });
+    }
     if (path === '/api/vcard' && req.method === 'POST') {
       const form = await req.formData();
       const v = String(form.get('vcf') || '');

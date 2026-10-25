@@ -1925,11 +1925,12 @@
     var vcf = lines.join('\r\n') + '\r\n';
     // Cloudflare版: いったんサーバーに送り返して、本物のURLとして開く（iPhoneで「新規連絡先を作成」が出る）
     if (/workers\.dev$/.test(location.hostname)) {
-      var fm = document.createElement('form');
-      fm.method = 'POST'; fm.action = '/api/vcard'; fm.target = '_blank'; fm.style.display = 'none';
-      var inp = document.createElement('input'); inp.type = 'hidden'; inp.name = 'vcf'; inp.value = vcf; fm.appendChild(inp);
-      document.body.appendChild(fm); fm.submit(); setTimeout(function () { fm.remove(); }, 3000);
-      toast('連絡先を開きました。下の「新規連絡先を作成」を押してください');
+      // 先にサーバーに置いて、別の画面で普通のアドレスとして開く（ホーム画面に置いたCRMでも白くならないように 2026-10-25）。
+      // 押したその場で開かないと止められるので、番号はここで作り、置くのと開くのを同時にする（サーバーが少し待ってくれる）
+      var vid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+      fetch('/api/vcard/' + vid, { method: 'PUT', body: vcf, keepalive: true }).catch(function () {});
+      window.open('/api/vcard/' + vid + '.vcf', '_blank');
+      toast('連絡先を開きました。「新規連絡先を作成」を押してください');
       return;
     }
     var blob = new Blob([vcf], { type: 'text/vcard;charset=utf-8' });
