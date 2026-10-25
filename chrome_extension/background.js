@@ -5616,7 +5616,7 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     // 順番は「絞り込む前の全条件」基準で決める（本人OFF＋おすすめONのお客さんが飛ばないように）
     const criteria = groupCriteriaByCustomer(_selected, allCriteria);
     globalThis.__sbReset();   // 同じ建物の部屋の数え直し（検索1回ごと）
-    globalThis.__srReset(); globalThis.__srActive = true; globalThis.__srNames = criteria.map(c => c.name);
+    globalThis.__srReset(); globalThis.__srSent = new Set(); globalThis.__srActive = true; globalThis.__srNames = criteria.map(c => c.name);
     // 4サイトを同時に進めるか（既定はする。log.html などで parallelServices=false にすると順番に戻る）
     {
       const { parallelServices } = await getStorageData(['parallelServices']);
@@ -5786,6 +5786,7 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     // キャンセル待ちチェックは顧客名に紐づくため、1サイクル中は顧客ごとに1回だけ実行する
     // (同じ顧客のメイン条件+おすすめ条件で監視リストを何度もチェックする無駄を防ぐ)
     const watchCheckedCustomers = new Set();
+    globalThis.__srSent = new Set();   // 検索結果・検索回数をもうGASに送ったお客様（1人終わるごとに送る）
 
     for (let ci = 0; ci < criteria.length; ci++) {
       if (isSearchCancelled(searchId)) {
@@ -6017,6 +6018,15 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
         try { await flushBatchBufferForCustomer(customer.name); }
         catch (err) { logError(`[system] ${customer.name}: 一括通知エラー: ${err.message}`); }
       }
+      // このお客様の条件が全部終わったら、CRMの「今日の検索」「直近の検索結果」をすぐ更新する。
+      // ⚠️ 全員終わってからまとめて送っていたので、何人かまとめて検索すると、終わった人も「今日はまだ検索していません」のままだった（2026-10-25）
+      if (!_nextSame && !globalThis.__srSent.has(customer.name)) {
+        globalThis.__srSent.add(customer.name);
+        const _n = customer.name, _sr = (globalThis.__sr && globalThis.__sr[_n]) || {};
+        gasPost({ action: 'record_search_runs', runs: [{ name: _n, found: discordPropertyCounters[_n] || 0 }] }).catch(e => console.warn('[検索回数] 送れません: ' + e.message));
+        gasPost({ action: 'record_search_results', results: [{ name: _n, found: discordPropertyCounters[_n] || 0, counts: _sr.counts || {}, skips: _sr.skips || [], cancelled: false }] })
+          .catch(e => console.warn('[検索結果] 送れません: ' + e.message));
+      }
 
       // 物件が見つからなかった顧客は _noResultCustomers に貯めて、
       // 巡回サイクル全体の終了時に1通のまとめ通知として送る（顧客ごと個別通知が煩わしいため）
@@ -6034,7 +6044,7 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     // CRMの「今日の検索 ◯回」用: 検索した人と、新しく見つかった件数をGASに1回だけ送る（2026-10-13）
     try {
       const _runs = {};
-      criteria.forEach(c => { if (c && c.name) _runs[c.name] = discordPropertyCounters[c.name] || 0; });
+      criteria.forEach(c => { if (c && c.name && !globalThis.__srSent.has(c.name)) _runs[c.name] = discordPropertyCounters[c.name] || 0; });   // 1人ずつ送った人は除く
       const _list = Object.keys(_runs).map(n => ({ name: n, found: _runs[n] }));
       if (_list.length) gasPost({ action: 'record_search_runs', runs: _list }).catch(e => console.warn('[検索回数] 送れません: ' + e.message));
     } catch (eRuns) { console.warn('[検索回数] ' + eRuns.message); }
@@ -6069,7 +6079,7 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     if (globalThis.__srActive) {
       globalThis.__srActive = false;
       try {
-        const names = Array.from(new Set(globalThis.__srNames || []));
+        const names = Array.from(new Set(globalThis.__srNames || [])).filter(n => !(globalThis.__srSent && globalThis.__srSent.has(n)));   // 1人ずつ送った人は除く（止めた人・届かなかった人だけ）
         const results = names.map(n => ({ name: n, found: discordPropertyCounters[n] || 0,
           counts: (globalThis.__sr[n] || {}).counts || {}, skips: (globalThis.__sr[n] || {}).skips || [],
           cancelled: isSearchCancelled(searchId) }));
