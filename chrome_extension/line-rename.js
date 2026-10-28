@@ -104,12 +104,12 @@
         chrome.runtime.sendMessage({ type: 'LINE_NAME_MAP', fresh: !!fresh }, function (res) {
           if (chrome.runtime.lastError) {
             console.warn('[LINE表示名] 拡張に届きません: ' + chrome.runtime.lastError.message);
-            resolve({}); return;
+            resolve({ map: {}, chats: {} }); return;
           }
           if (!res || !res.ok) console.warn('[LINE表示名] 対応表を取れません:', res && res.message);
-          resolve((res && res.map) || {});
+          resolve({ map: (res && res.map) || {}, chats: (res && res.chats) || {} });
         });
-      } catch (e) { resolve({}); }
+      } catch (e) { resolve({ map: {}, chats: {} }); }
     });
   }
 
@@ -261,7 +261,9 @@
       // 名前の付いていない人のトークに動きがあった（メッセージが来た）ときだけ、対応表を新しめに取る。
       // ⚠️ 「名前の無い人がいたら」で取り直すと、〔LINEのみ〕や家族の人がいつもいるので、GASを15秒ごとに叩いてしまう
       var moved = deep || chats.some(function (c) { return !done[c.chatId] && !c.renamed && checkedSig[c.chatId] !== c.sig; });
-      var map = await nameMap(moved);
+      var got = await nameMap(moved);
+      var map = got.map;
+      var knownChat = got.chats;   // 顧客名 → もう分かっているトークのID
       chats.forEach(function (c) { checkedSig[c.chatId] = c.sig; });
       if (!Object.keys(map).length) return;
       if (deep) console.log('[LINE表示名] 一覧 ' + chats.length + '件 / 対応表 ' + Object.keys(map).length + '件');
@@ -276,6 +278,19 @@
       }
       var warned = {};
 
+      // ⚠️ 表示名が当たっても、その顧客のトークがもう別にあるなら付けない（2026-10-28）。
+      //   新しい友だちが既存客と同じ表示名（あやか 等）だと、まだ名前の無い本人のトークに
+      //   既存客の名前が付いてしまう（水落さまのトークに「松永彩加」が付いた）。
+      //   一覧の中にもう顧客名で出ているトークがあれば、それも同じく「分かっている」とみなす。
+      var shownNorm = {};
+      chats.forEach(function (c) { shownNorm[normName(c.shown)] = c.chatId; });
+      function otherOwner(c, cust) {
+        var nm = String(cust || '').trim();
+        if (knownChat[nm] && knownChat[nm] !== c.chatId) return true;
+        var sid = shownNorm[normName(nm)];
+        return !!(sid && sid !== c.chatId);
+      }
+
       // CRMの「💬 LINEのトーク」用: どのトークがどの顧客か、GASに知らせる（変わった分だけ）
       // 表示名が対応表にある人（まだ改名していない）か、表示名がもう顧客名になっている人（改名済み）。重複は見送る
       try {
@@ -284,7 +299,9 @@
         var pairs = [];
         chats.forEach(function (c) {
           if (shownCount[c.shown] > 1) return;
-          var nm = map[c.shown] ? String(map[c.shown]).trim() : (custNames[normName(c.shown)] || '');
+          var nm = '';
+          if (map[c.shown] && !otherOwner(c, map[c.shown])) nm = String(map[c.shown]).trim();
+          else if (custNames[normName(c.shown)]) nm = custNames[normName(c.shown)];
           if (!nm || reported[nm] === c.chatId) return;
           pairs.push({ name: nm, chatId: c.chatId });
         });
@@ -314,6 +331,12 @@
         if (c.renamed) { done[c.chatId] = '改名済み'; continue; }
         var want = map[c.shown];
         if (!want) continue;
+        if (otherOwner(c, want)) {
+          done[c.chatId] = '別のトークの人';
+          console.warn('[LINE表示名] 表示名「' + c.shown + '」は' + want + 'さまと同じですが、'
+            + want + 'さまのトークは別にあるので付けません。手で付けてください');
+          continue;
+        }
         want = String(want).replace(/\s+/g, ' ').trim();
         if (want.length > NAME_MAX) want = want.substring(0, NAME_MAX);
         if (!want || want === c.shown) { done[c.chatId] = 'そのまま'; continue; }

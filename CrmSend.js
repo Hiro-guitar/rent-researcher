@@ -717,8 +717,9 @@ function _crmPropListsFor_(names) {
         var n = String(r[0] || '').trim();
         if (!names[n]) return;
         var k = n + '|' + String(r[1] || '').trim(), act = String(r[2] || '').trim(), ms = _cellToEpochMs_(r[8]);
-        var x = react[k] || (react[k] = { views: 0, lastMs: 0, act: '', actMs: 0, staff: false });
+        var x = react[k] || (react[k] = { views: 0, lastMs: 0, act: '', actMs: 0, staff: false, hist: [] });
         if (ms > x.lastMs) x.lastMs = ms;
+        if (ms && act && act !== 'clear') x.hist.push([ms, act]);   // いつ見た・押したか（👀を押すと出す）
         if (act === 'view') { x.views++; return; }
         if (ms >= x.actMs) { x.act = act; x.actMs = ms; x.staff = String(r[9] || '').indexOf('スタッフ') >= 0; }
       });
@@ -729,6 +730,7 @@ function _crmPropListsFor_(names) {
       var x = react[n + '|' + it.roomId];
       if (!x) return;
       it.views = x.views; it.reactMs = x.lastMs;
+      it.hist = x.hist.sort(function (a, b) { return b[0] - a[0]; }).slice(0, 20);
       it.act = (x.act === 'clear') ? '' : x.act; it.actByStaff = x.staff;
     });
   });

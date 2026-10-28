@@ -187,6 +187,8 @@
   .sendbox { position: sticky; bottom: -12px; background: var(--surface); border-top: 1px solid var(--hair); padding: 8px 0 12px; margin-top: 8px; z-index: 2; }
   .memo.small { min-height: 64px; }
   .rtag { font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--hair); border-radius: 4px; padding: 0 5px; }
+  a.rtag { text-decoration: none; cursor: pointer; }
+  .phist { font-size: 11px; color: var(--muted); margin-top: 2px; padding-left: 6px; border-left: 2px solid var(--hair); line-height: 1.6; font-variant-numeric: tabular-nums; }
   .rtag.on { color: var(--green); border-color: var(--green); }
   .rtag.ng { color: var(--muted); text-decoration: line-through; }
   .tasks { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
@@ -1243,6 +1245,14 @@
     renderNow();
   }
   function secToggle(k, on) { var x = extras[selName]; x.secOpen = x.secOpen || {}; x.secOpen[k] = on; render(); }
+  // 👀の中身: いつ見た・押したか（新しい順）
+  function histToggle(rid) { var x = extras[selName]; x.histOf = x.histOf || {}; x.histOf[rid] = !x.histOf[rid]; render(); }
+  function histItem(e) {
+    var d = new Date(e[0]), W = '日月火水木金土';
+    var HA = { view: '見た', favorite: '♡お気に入り', viewing: '🏠内見希望', viewing_intent: '🏠内見の画面を開いた', hold: '📝申込希望', hold_intent: '📝申込の画面を開いた', not_interested: '✕興味なし' };
+    return (d.getMonth() + 1) + '/' + d.getDate() + '(' + W[d.getDay()] + ') ' + d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2)
+      + ' ' + esc(HA[e[1]] || e[1]);
+  }
   function propRow(p, kind, c, x, watching) {
     var rid = esc(JSON.stringify(p.roomId));
     var canPick = kind !== 'watch' && (c.lineUid || kind === 'new' || kind === 'cand');   // LINEが無くても新着・候補は選べる（まとめて仕分けるため）
@@ -1252,7 +1262,8 @@
       tags += ' <span class="meta">' + esc(p.sentAt) + '送った</span>';
       // お客様の反応（物件ページで見た・押した）。スタッフが付けた内見希望は「（LINE）」
       var ACT = { favorite: '♡お気に入り', viewing: '🏠内見希望', viewing_intent: '🏠内見の画面を開いた', hold: '📝申込希望', hold_intent: '📝申込の画面を開いた', not_interested: '✕興味なし' };
-      if (p.views) tags += ' <span class="rtag">👀' + p.views + '回</span>';
+      // 👀を押すと、いつ見た・押したかを物件の下に出す（ふだんは畳んでおく）
+      if (p.views) tags += ' <a href="#" class="rtag" title="いつ見たか" onclick="histToggle(' + rid + ');return false">👀' + p.views + '回' + (p.hist && p.hist.length ? ' ▾' : '') + '</a>';
       if (p.act && ACT[p.act]) tags += ' <span class="rtag' + (p.act === 'not_interested' ? ' ng' : ' on') + '">' + ACT[p.act] + (p.actByStaff ? '（LINE）' : '') + '</span>';
     }
     if (kind === 'skip') tags += ' <span class="meta">' + esc(p.at) + '見送った</span>';
@@ -1306,6 +1317,7 @@
       + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area, p.station].filter(Boolean).join('・'))
       + (sub.length ? ' <span class="sub">' + sub.join('・') + '</span>' : '') + '</div>'
       + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
+      + ((x.histOf || {})[p.roomId] && p.hist && p.hist.length ? '<div class="phist">' + p.hist.map(histItem).join('<br>') + '</div>' : '')
       + (ps.m ? '<div class="pmemo">📝 ' + esc(ps.m) + '</div>' : '')
       + (c.taskList || []).filter(function (t) { return t.roomId && t.roomId === p.roomId; }).map(function (t) {
         var a = esc(JSON.stringify(t.row)) + ',' + esc(JSON.stringify(t.content));
