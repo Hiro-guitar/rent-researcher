@@ -630,7 +630,6 @@ async function getConfig() {
 // chat.line.biz 用の「LINEの表示名 → 顧客名」対応表。10分だけ使い回す。
 let _lineNameMap = null;
 let _lineNameMapAt = 0;
-let _lineNameChats = {};   // 顧客名 → もう分かっているトークのID
 
 async function gasGet(action, params = {}, timeoutMs = 30000) {
   const { gasWebappUrl, gasApiKey } = await getConfig();
@@ -3160,15 +3159,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // fresh: まだ名前の付いていない人がいるときは、10秒より古ければ取り直す（メールを送った人をすぐ付け替えるため）
     // ふだんは10分使い回す。名前の無い人のトークに動きがあったとき（fresh）だけ、10秒より古ければ取り直す
     if (_lineNameMap && now - _lineNameMapAt < (msg.fresh ? 10 : 600) * 1000) {
-      sendResponse({ ok: true, map: _lineNameMap, chats: _lineNameChats, cached: true });
+      sendResponse({ ok: true, map: _lineNameMap, cached: true });
       return true;
     }
     gasGet('line_name_map', {})
       .then(r => {
         _lineNameMap = (r && r.map) || {};
-        _lineNameChats = (r && r.chats) || {};
         _lineNameMapAt = Date.now();
-        sendResponse({ ok: true, map: _lineNameMap, chats: _lineNameChats, count: Object.keys(_lineNameMap).length });
+        sendResponse({ ok: true, map: _lineNameMap, count: Object.keys(_lineNameMap).length });
       })
       .catch(err => {
         console.warn('[LINE表示名] 対応表を引けません: ' + err.message);

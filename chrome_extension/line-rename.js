@@ -104,12 +104,12 @@
         chrome.runtime.sendMessage({ type: 'LINE_NAME_MAP', fresh: !!fresh }, function (res) {
           if (chrome.runtime.lastError) {
             console.warn('[LINE表示名] 拡張に届きません: ' + chrome.runtime.lastError.message);
-            resolve({ map: {}, chats: {} }); return;
+            resolve({ map: {} }); return;
           }
           if (!res || !res.ok) console.warn('[LINE表示名] 対応表を取れません:', res && res.message);
-          resolve({ map: (res && res.map) || {}, chats: (res && res.chats) || {} });
+          resolve({ map: (res && res.map) || {} });
         });
-      } catch (e) { resolve({ map: {}, chats: {} }); }
+      } catch (e) { resolve({ map: {} }); }
     });
   }
 
@@ -263,7 +263,6 @@
       var moved = deep || chats.some(function (c) { return !done[c.chatId] && !c.renamed && checkedSig[c.chatId] !== c.sig; });
       var got = await nameMap(moved);
       var map = got.map;
-      var knownChat = got.chats;   // 顧客名 → もう分かっているトークのID
       chats.forEach(function (c) { checkedSig[c.chatId] = c.sig; });
       if (!Object.keys(map).length) return;
       if (deep) console.log('[LINE表示名] 一覧 ' + chats.length + '件 / 対応表 ' + Object.keys(map).length + '件');
@@ -281,12 +280,12 @@
       // ⚠️ 表示名が当たっても、その顧客のトークがもう別にあるなら付けない（2026-10-28）。
       //   新しい友だちが既存客と同じ表示名（あやか 等）だと、まだ名前の無い本人のトークに
       //   既存客の名前が付いてしまう（水落さまのトークに「松永彩加」が付いた）。
-      //   一覧の中にもう顧客名で出ているトークがあれば、それも同じく「分かっている」とみなす。
+      //   一覧の中にもう顧客名で出ているトークがあれば、その人のトークは別にあるとみなす。
+      //   （トークが分かっている人は、GASが対応表から外している。こちらは念のため）
       var shownNorm = {};
       chats.forEach(function (c) { shownNorm[normName(c.shown)] = c.chatId; });
       function otherOwner(c, cust) {
         var nm = String(cust || '').trim();
-        if (knownChat[nm] && knownChat[nm] !== c.chatId) return true;
         var sid = shownNorm[normName(nm)];
         return !!(sid && sid !== c.chatId);
       }

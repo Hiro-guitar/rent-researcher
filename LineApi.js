@@ -430,12 +430,24 @@ function getLineChatNameMap() {
   if (!sh || sh.getLastRow() < 2) return out;
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, LINE_DISPLAY_NAME_COL).getValues();
 
+  // トークがもう分かっている（名前を付け終えた）お客様は、重なりの数に入れない（2026-10-28）。
+  // 新しい「あやか」さんがメアドでつながったとき、前からいる「あやか」の松永さまと重なって
+  // どちらにも付かなくなっていた。松永さまのトークはもう名前が付いているので、表示名「あやか」で
+  // 探すのは新しい人だけでよい。
+  var known = {};
+  try {
+    var lc0 = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRM_LINE_CHAT_SHEET);
+    if (lc0 && lc0.getLastRow() > 1) lc0.getRange(2, 1, lc0.getLastRow() - 1, 2).getValues().forEach(function (r) {
+      if (String(r[0] || '').trim() && String(r[1] || '').trim()) known[String(r[0]).trim()] = true;
+    });
+  } catch (eK) {}
   var count = {};
   var pick = {};
   for (var i = 0; i < rows.length; i++) {
     var shown = String(rows[i][LINE_DISPLAY_NAME_COL - 1] || '').trim();
     var customer = String(rows[i][1] || '').trim();
     if (!shown || !customer) continue;
+    if (known[customer]) continue;
     count[shown] = (count[shown] || 0) + 1;
     if (count[shown] === 1) pick[shown] = customer;
     else if (pick[shown] !== customer) pick[shown] = null;   // 別人同士 → 使わない
@@ -444,20 +456,6 @@ function getLineChatNameMap() {
     if (pick[k]) out.map[k] = pick[k];
     else out.skipped.push(k);
   }
-  // 顧客名 → もう分かっているトークのID（2026-10-28）。
-  // 表示名だけで引くと、まだ名前の無い新しい友だちが既存客と同じ表示名（あやか 等）だったとき、
-  // 既存客の名前を付けてしまう（水落さまのトークに「松永彩加」が付いた）。
-  // 拡張はこれを見て、別のトークに既存客の名前を付けない。
-  out.chats = {};
-  try {
-    var want = {};
-    for (var m in out.map) want[out.map[m]] = true;
-    var lc = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRM_LINE_CHAT_SHEET);
-    if (lc && lc.getLastRow() > 1) lc.getRange(2, 1, lc.getLastRow() - 1, 2).getValues().forEach(function (r) {
-      var nm = String(r[0] || '').trim(), id = String(r[1] || '').trim();
-      if (nm && id && want[nm]) out.chats[nm] = id;
-    });
-  } catch (eLc) {}
   return out;
 }
 
