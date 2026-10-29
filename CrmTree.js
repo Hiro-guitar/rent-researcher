@@ -958,6 +958,17 @@ function doneCrmTask(customerName, row, content) {
   try { cfSyncRows(TASK_SHEET_NAME, [r], 'やること'); } catch (eCf) {}
   var page = _crmTreeForPage_(customerName); page.savedMessage = '済みにしました'; return page;
 }
+/** 画面: やることの中身（タイトル）を直す。 */
+function setCrmTaskContent(customerName, row, content, newContent) {
+  newContent = String(newContent || '').trim();
+  if (!newContent) throw new Error('やることを入れてください');
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(TASK_SHEET_NAME);
+  var r = _crmTaskRowOf_(sh, customerName, row, content);
+  if (r < 0) throw new Error('そのやることが見つかりません');
+  sh.getRange(r, 2).setValue(newContent);
+  try { cfSyncRows(TASK_SHEET_NAME, [r], 'やること'); } catch (eCf) {}
+  var page = _crmTreeForPage_(customerName); page.savedMessage = 'やることを直しました'; return page;
+}
 /** 画面: やることの期日を直す（due は yyyy-MM-dd か空）。 */
 function setCrmTaskDue(customerName, row, content, due) {
   var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(TASK_SHEET_NAME);

@@ -643,12 +643,17 @@
       var due = t.due && t.due <= t0;
       var wait = t.owner && t.owner !== '自分';   // 相手待ち。期日は催促する日
       return '<div class="task' + (due ? ' due' : '') + (wait ? ' wait' : '') + '"><div class="ttop"><span class="tdate">' + (due ? '🔴 ' : '') + (t.due ? (wait ? '催促 ' : '') + mdOf(t.due) : '期日なし') + '</span>'
-        + '<span class="tbody">' + (wait ? '<span class="twait">⏳' + esc(t.owner) + '待ち</span> ' : '') + esc(t.content) + '</span></div><span class="tbtns">'
+        + '<span class="tbody">' + (wait ? '<span class="twait">⏳' + esc(t.owner) + '待ち</span> ' : '')
+        + (x.taskTitle === t.row
+          ? '<input id="taskTitleIn" class="inp" value="' + esc(x.taskTitleDraft != null ? x.taskTitleDraft : t.content) + '" oninput="extras[selName].taskTitleDraft=this.value" onkeydown="if(event.key===\'Enter\'&&!event.isComposing){taskTitleSave(' + a + ');}else if(event.key===\'Escape\'){extras[selName].taskTitle=null;render();}">'
+            + ' <a href="#" onclick="taskTitleSave(' + a + ');return false">保存</a> <a href="#" onclick="extras[selName].taskTitle=null;render();return false">やめる</a>'
+          : esc(t.content)) + '</span></div><span class="tbtns">'
         + '<select class="tdin" title="誰の番か" onchange="taskOwner(' + a + ',this.value)">' + ['自分', 'お客さん', '管理会社', '社宅代行'].map(function (o) {
           return '<option value="' + o + '"' + ((t.owner || '自分') === o ? ' selected' : '') + '>' + (o === '自分' ? '自分の番' : o + '待ち') + '</option>';
         }).join('') + '</select>'
         + (x.taskEdit === t.row ? '<input type="date" class="tdin" value="' + esc(t.due) + '" onchange="taskDue(' + a + ',this.value)">'
           : '<a href="#" onclick="taskDone(' + a + ');return false">済み</a><a href="#" onclick="extras[selName].taskEdit=' + esc(JSON.stringify(t.row)) + ';render();return false">日付</a>'
+          + '<a href="#" onclick="taskTitleOpen(' + esc(JSON.stringify(t.row)) + ');return false">直す</a>'
           + '<a href="#" class="skip" onclick="taskDel(' + a + ');return false">消す</a>')
         + '</span></div>';
     }).join('') || '<div class="meta">やることはありません</div>';
@@ -675,6 +680,17 @@
   }
   function taskDel(row, content) {
     call('deleteCrmTask', [selName, row, content], '消しました', function (c) { c.taskList = (c.taskList || []).filter(function (t) { return !(t.row === row && t.content === content); }); });
+  }
+  function taskTitleOpen(row) {
+    extras[selName].taskTitle = row; extras[selName].taskTitleDraft = null; render();
+    setTimeout(function () { var el = document.getElementById('taskTitleIn'); if (el) { el.focus(); el.select(); } }, 0);
+  }
+  function taskTitleSave(row, content) {
+    var el = document.getElementById('taskTitleIn');
+    var v = el ? el.value.trim() : '';
+    var x = extras[selName]; x.taskTitle = null; x.taskTitleDraft = null;
+    if (!v || v === content) { render(); return; }
+    call('setCrmTaskContent', [selName, row, content, v], 'やることを直しました', function (c) { (c.taskList || []).forEach(function (t) { if (t.row === row && t.content === content) t.content = v; }); });
   }
   function taskDue(row, content, due) {
     var x = extras[selName]; x.taskEdit = null;
