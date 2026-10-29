@@ -937,7 +937,9 @@ function _crmTaskRowOf_(sh, customerName, row, content) {
 function addCrmTask(customerName, content, due, owner, roomId) {
   content = String(content || '').trim();
   if (!content) throw new Error('やることを入れてください');
-  var r = addCustomerTask(customerName, content, due || '', owner || TASK_OWNER_DEFAULT);
+  // 日付を入れなかったら今日（2026-10-29 ユーザー指示）
+  if (!due) due = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  var r = addCustomerTask(customerName, content, due, owner || TASK_OWNER_DEFAULT);
   if (!r || !r.success) throw new Error((r && r.message) || '足せませんでした');
   if (roomId) {
     // 物件のやること: H列にどの物件かを書く（物件の行の下にも出す）

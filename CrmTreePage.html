@@ -668,7 +668,7 @@
   function taskAdd() {
     var name = selName, x = extras[name], content = (x.taskDraft || '').trim(), due = x.taskDraftDue || '', owner = x.taskDraftOwner || '自分';
     if (!content) { toast('やることを入れてください'); return; }
-    if (owner !== '自分' && !due) { toast('待ちのときは、催促する日を入れてください'); return; }
+    if (!due) { var d0 = new Date(); due = d0.getFullYear() + '-' + ('0' + (d0.getMonth() + 1)).slice(-2) + '-' + ('0' + d0.getDate()).slice(-2); }   // 日付を入れなければ今日
     x.taskDraft = ''; x.taskDraftDue = ''; x.taskDraftOwner = '';
     call('addCrmTask', [name, content, due, owner], 'やることを足しました', function (c) { (c.taskList = c.taskList || []).push({ row: -1, content: content, due: due, owner: owner }); });
   }
@@ -1642,7 +1642,7 @@
     var t = prompt('この物件のやること（例: 空室確認、管理会社にペット可か確認）', '');
     if (!t || !t.trim()) return;
     var content = t.trim() + (p.building ? '（' + p.building + (p.room ? ' ' + p.room : '') + '）' : '');
-    call('addCrmTask', [name, content, '', '自分', rid], 'やることを足しました', function (c) { (c.taskList = c.taskList || []).push({ row: -1, content: content, due: '', owner: '自分', roomId: rid }); });
+    call('addCrmTask', [name, content, '', '自分', rid], 'やることを足しました', function (c) { (c.taskList = c.taskList || []).push({ row: -1, content: content, due: (function (d0) { return d0.getFullYear() + '-' + ('0' + (d0.getMonth() + 1)).slice(-2) + '-' + ('0' + d0.getDate()).slice(-2); })(new Date()), owner: '自分', roomId: rid }); });
   }
   function setWatch(rid, on) {
     call('setCrmWatch', [selName, rid, on], on ? 'キャンセル待ちにしました' : 'キャンセル待ちをやめました', function (c) {
