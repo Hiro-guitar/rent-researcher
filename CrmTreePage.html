@@ -644,7 +644,7 @@
       var wait = t.owner && t.owner !== '自分';   // 相手待ち。期日は催促する日
       return '<div class="task' + (due ? ' due' : '') + (wait ? ' wait' : '') + '"><div class="ttop"><span class="tdate">' + (due ? '🔴 ' : '') + (t.due ? (wait ? '催促 ' : '') + mdOf(t.due) : '期日なし') + '</span>'
         + '<span class="tbody">' + (wait ? '<span class="twait">⏳' + esc(t.owner) + '待ち</span> ' : '') + esc(t.content) + '</span></div><span class="tbtns">'
-        + '<select class="tdin" title="誰の番か" onchange="taskOwner(' + a + ',this.value)">' + ['自分', 'お客さん', '管理会社'].map(function (o) {
+        + '<select class="tdin" title="誰の番か" onchange="taskOwner(' + a + ',this.value)">' + ['自分', 'お客さん', '管理会社', '社宅代行'].map(function (o) {
           return '<option value="' + o + '"' + ((t.owner || '自分') === o ? ' selected' : '') + '>' + (o === '自分' ? '自分の番' : o + '待ち') + '</option>';
         }).join('') + '</select>'
         + (x.taskEdit === t.row ? '<input type="date" class="tdin" value="' + esc(t.due) + '" onchange="taskDue(' + a + ',this.value)">'
@@ -653,7 +653,7 @@
         + '</span></div>';
     }).join('') || '<div class="meta">やることはありません</div>';
     h += '</div><div class="tadd"><input id="taskNew" class="inp" placeholder="やること（例: 申込書を送る）" value="' + esc(x.taskDraft || '') + '" oninput="extras[selName].taskDraft=this.value">'
-      + '<select class="tdin" title="誰の番か" onchange="extras[selName].taskDraftOwner=this.value">' + ['自分', 'お客さん', '管理会社'].map(function (o) {
+      + '<select class="tdin" title="誰の番か" onchange="extras[selName].taskDraftOwner=this.value">' + ['自分', 'お客さん', '管理会社', '社宅代行'].map(function (o) {
           return '<option value="' + o + '"' + ((x.taskDraftOwner || '自分') === o ? ' selected' : '') + '>' + (o === '自分' ? '自分の番' : o + '待ち') + '</option>';
         }).join('') + '</select>'
       + '<input id="taskNewDue" type="date" class="tdin" title="期日（待ちのときは催促する日）" value="' + esc(x.taskDraftDue || '') + '" onchange="extras[selName].taskDraftDue=this.value">'
